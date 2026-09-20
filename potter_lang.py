@@ -42,6 +42,12 @@ class TokenType(enum.Enum):
     NEQ = "!="
     LT = "<"
     GT = ">"
+    LTE = "<="
+    GTE = ">="
+    MOD = "%"
+    AND = "&&"
+    OR = "||"
+    NOT = "!"
 
     LPAREN = "("
     RPAREN = ")"
@@ -116,10 +122,11 @@ class LexerPotter:
                 self.col += 1
                 continue
 
-            # Comentários de Magia (-- Comentário, alinhado com Mythos)
+            # Comentários de linha: tudo até a quebra de linha é descartado.
             if char == '-' and self.peek() == '-':
                 while self.pos < len(self.source) and self.source[self.pos] != '\n':
                     self.pos += 1
+                    self.col += 1
                 continue
 
             # Operador de Atribuição ~>
@@ -128,23 +135,47 @@ class LexerPotter:
                 self.advance(2)
                 continue
 
-            # Operadores Relacionais e Aritméticos
+            # Operadores Relacionais, Lógicos e Aritméticos
             if char == '=' and self.peek() == '=':
                 self.tokens.append(Token(TokenType.EQ, "==", self.line, self.col))
                 self.advance(2)
                 continue
+            elif char == '=':
+                self.error("Atribuição simples inválida; use '~>'.")
             elif char == '!' and self.peek() == '=':
                 self.tokens.append(Token(TokenType.NEQ, "!=", self.line, self.col))
+                self.advance(2)
+                continue
+            elif char == '!':
+                self.tokens.append(Token(TokenType.NOT, "!", self.line, self.col))
+                self.advance()
+                continue
+            elif char == '<' and self.peek() == '=':
+                self.tokens.append(Token(TokenType.LTE, "<=", self.line, self.col))
                 self.advance(2)
                 continue
             elif char == '<':
                 self.tokens.append(Token(TokenType.LT, "<", self.line, self.col))
                 self.advance()
                 continue
+            elif char == '>' and self.peek() == '=':
+                self.tokens.append(Token(TokenType.GTE, ">=", self.line, self.col))
+                self.advance(2)
+                continue
             elif char == '>':
                 self.tokens.append(Token(TokenType.GT, ">", self.line, self.col))
                 self.advance()
                 continue
+            elif char == '&' and self.peek() == '&':
+                self.tokens.append(Token(TokenType.AND, "&&", self.line, self.col))
+                self.advance(2)
+                continue
+            elif char == '|' and self.peek() == '|':
+                self.tokens.append(Token(TokenType.OR, "||", self.line, self.col))
+                self.advance(2)
+                continue
+            elif char in '&|':
+                self.error("Operador lógico incompleto; use '&&' ou '||'.")
             elif char == '+':
                 self.tokens.append(Token(TokenType.PLUS, "+", self.line, self.col))
                 self.advance()
@@ -159,6 +190,10 @@ class LexerPotter:
                 continue
             elif char == '/':
                 self.tokens.append(Token(TokenType.SLASH, "/", self.line, self.col))
+                self.advance()
+                continue
+            elif char == '%':
+                self.tokens.append(Token(TokenType.MOD, "%", self.line, self.col))
                 self.advance()
                 continue
 
@@ -424,6 +459,20 @@ class BinaryOpNode(ASTNode):
         return res
 
 
+class UnaryOpNode(ASTNode):
+    def __init__(self, op: str, operand: ASTNode, line: int = None):
+        self.op = op
+        self.operand = operand
+        self.line = line
+
+    def print_tree(self, indent: str = "", is_last: bool = True) -> str:
+        marker = "└── " if is_last else "├── "
+        res = f"{indent}{marker}⚔️ UNARY_OP ({self.op})\n"
+        new_indent = indent + ("    " if is_last else "│   ")
+        res += self.operand.print_tree(new_indent, True)
+        return res
+
+
 class LiteralNode(ASTNode):
     def __init__(self, value: Any, type_name: str, line: int = None):
         self.value = value
@@ -468,13 +517,12 @@ class ParserPotter:
         return self.peek().type == TokenType.EOF
 
     def advance(self) -> Token:
+        token = self.peek()
         if not self.is_at_end():
             self.current += 1
-        return self.previous()
+        return token
 
     def check(self, type_: TokenType) -> bool:
-        if self.is_at_end():
-            return False
         return self.peek().type == type_
 
     def match(self, *types: TokenType) -> bool:
@@ -499,6 +547,7 @@ class ParserPotter:
             body.append(self.statement())
 
         self.consume(TokenType.RBRACE, "Esperado '}' para fechar os portões de Hogwarts.")
+        self.consume(TokenType.EOF, "Esperado fim do programa.")
         return ProgramNode(name_tok.value, body, line=hogwarts_tok.line)
 
     def statement(self) -> ASTNode:
@@ -627,7 +676,22 @@ class ParserPotter:
         return ExpelliarmusNode(expr, line=exp_tok.line)
 
     def expression(self) -> ASTNode:
-        return self.equality()
+        # A ordem dos métodos representa a precedência dos operadores.
+        return self.logical_or()
+
+    def logical_or(self) -> ASTNode:
+        expr = self.logical_and()
+        while self.match(TokenType.OR):
+            op_tok = self.previous()
+            expr = BinaryOpNode(expr, op_tok.value, self.logical_and(), line=op_tok.line)
+        return expr
+
+    def logical_and(self) -> ASTNode:
+        expr = self.equality()
+        while self.match(TokenType.AND):
+            op_tok = self.previous()
+            expr = BinaryOpNode(expr, op_tok.value, self.equality(), line=op_tok.line)
+        return expr
 
     def equality(self) -> ASTNode:
         expr = self.relational()
@@ -639,7 +703,7 @@ class ParserPotter:
 
     def relational(self) -> ASTNode:
         expr = self.additive()
-        while self.match(TokenType.LT, TokenType.GT):
+        while self.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE):
             op_tok = self.previous()
             right = self.additive()
             expr = BinaryOpNode(expr, op_tok.value, right, line=op_tok.line)
@@ -654,12 +718,18 @@ class ParserPotter:
         return expr
 
     def multiplicative(self) -> ASTNode:
-        expr = self.primary()
-        while self.match(TokenType.STAR_MULT, TokenType.SLASH):
+        expr = self.unary()
+        while self.match(TokenType.STAR_MULT, TokenType.SLASH, TokenType.MOD):
             op_tok = self.previous()
-            right = self.primary()
+            right = self.unary()
             expr = BinaryOpNode(expr, op_tok.value, right, line=op_tok.line)
         return expr
+
+    def unary(self) -> ASTNode:
+        if self.match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS):
+            op_tok = self.previous()
+            return UnaryOpNode(op_tok.value, self.unary(), line=op_tok.line)
+        return self.primary()
 
     def primary(self) -> ASTNode:
         if self.match(TokenType.INT_LITERAL):
@@ -690,8 +760,17 @@ class ParserPotter:
 # =====================================================================
 
 TIPOS_NUMERICOS = {"GALLEON", "SICKLE"}
-OPS_COMPARACAO = {"==", "!=", "<", ">"}
-OPS_ARITMETICOS = {"+", "-", "*", "/"}
+OPS_COMPARACAO = {"==", "!=", "<", ">", "<=", ">="}
+OPS_ARITMETICOS = {"+", "-", "*", "/", "%"}
+OPS_LOGICOS = {"&&", "||"}
+ARDUINO_BUILTINS = {
+    "pinMode": 2,
+    "digitalWrite": 2,
+    "digitalRead": 1,
+    "analogWrite": 2,
+    "analogRead": 1,
+    "delay": 1,
+}
 
 
 class SemanticError(Exception):
@@ -824,6 +903,14 @@ class SemanticAnalyzerPotter:
 
     def visit_CallNode(self, node: CallNode):
         simbolo = self.current_scope.resolve(node.name)
+        if simbolo is None and node.name in ARDUINO_BUILTINS:
+            # Comandos nativos ficam reservados para a futura geração Arduino.
+            esperados = ARDUINO_BUILTINS[node.name]
+            if len(node.args) != esperados:
+                self.error(node.line, f"Comando Arduino '{node.name}' requer {esperados} parâmetro(s), recebidos {len(node.args)}.")
+            for arg in node.args:
+                self.infer_type(arg)
+            return
         if simbolo is None:
             self.error(node.line, f"Tentativo de lançar '{node.name}', mas nenhum feitiço com esse nome foi ensinado.")
         if simbolo.categoria != "INCANTATIO":
@@ -863,14 +950,33 @@ class SemanticAnalyzerPotter:
                 return None
 
             if expr.op in OPS_COMPARACAO:
+                if expr.op in {"<", ">", "<=", ">="} and (
+                    tipo_esq not in TIPOS_NUMERICOS or tipo_dir not in TIPOS_NUMERICOS
+                ):
+                    self.error(expr.line, f"Operador '{expr.op}' exige tipos numéricos.")
                 if tipo_esq != tipo_dir:
-                    self.error(expr.line, f"Comparação entre tipos incompatibility ({tipo_esq} {expr.op} {tipo_dir}).")
+                    self.error(expr.line, f"Comparação entre tipos incompatíveis ({tipo_esq} {expr.op} {tipo_dir}).")
+                return "VERITAS"
+
+            if expr.op in OPS_LOGICOS:
+                if tipo_esq != "VERITAS" or tipo_dir != "VERITAS":
+                    self.error(expr.line, f"Operador '{expr.op}' exige operandos VERITAS.")
                 return "VERITAS"
 
             if expr.op in OPS_ARITMETICOS:
                 if tipo_esq not in TIPOS_NUMERICOS or tipo_dir not in TIPOS_NUMERICOS:
                     self.error(expr.line, f"Operador '{expr.op}' exige tipos numéricos (GALLEON/SICKLE), recebidos {tipo_esq} e {tipo_dir}.")
                 return "SICKLE" if "SICKLE" in (tipo_esq, tipo_dir) else "GALLEON"
+
+        if isinstance(expr, UnaryOpNode):
+            tipo = self.infer_type(expr.operand)
+            if expr.op == "!":
+                if tipo != "VERITAS":
+                    self.error(expr.line, "Operador '!' exige operando VERITAS.")
+                return "VERITAS"
+            if tipo not in TIPOS_NUMERICOS:
+                self.error(expr.line, f"Operador '{expr.op}' exige operando numérico.")
+            return tipo
 
         return None
 
