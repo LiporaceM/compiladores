@@ -159,6 +159,30 @@ class EndurecimentoTests(unittest.TestCase):
     def test_retorno_dentro_de_laco_infinito_e_aceito(self):
         ino("INCANTATIO f() { VIRATEMPO (ALWAYS) { EXPELLIARMUS 1; } } VARINHA GALLEON r ~> CAST f();")
 
+    def test_unarios_em_parametros_usam_o_tipo_inferido(self):
+        c = ino("INCANTATIO f(p) { SORTILEGIO (!p) { LUMOS(1); } } CAST f(ALWAYS);"
+                " INCANTATIO g(n) { EXPELLIARMUS -n; } VARINHA GALLEON r ~> CAST g(3);")
+        self.assertIn("void f(bool p)", c)
+        self.assertIn("if (!p)", c)
+        self.assertIn("int g(int n)", c)
+        self.assertIn("return (-n);", c)
+
+    def test_operadores_sao_rechecados_com_tipos_inferidos(self):
+        casos = (
+            ("INCANTATIO f(p) {\n SORTILEGIO (!p) { LUMOS(1); } }\n CAST f(3);", "'!'", 2),
+            ("INCANTATIO f(p) {\n SORTILEGIO (p && ALWAYS) { LUMOS(1); } }\n CAST f(3);", "'&&'", 2),
+            ("INCANTATIO f(p) {\n LUMOS(-p); }\n CAST f(ALWAYS);", "'-'", 2),
+            ("INCANTATIO f(p) {\n LUMOS(p + 1); }\n CAST f(\"x\");", "'+'", 2),
+            ("INCANTATIO f(p) {\n SORTILEGIO (p < 2) { LUMOS(1); } }\n CAST f(2.5);", "'<'", 2),
+            ("INCANTATIO f(p) {\n SORTILEGIO (p == 1) { LUMOS(1); } }\n CAST f(ALWAYS);", "'=='", 2),
+        )
+        for corpo, trecho, linha in casos:
+            with self.subTest(corpo=corpo):
+                self.assert_erro(corpo, trecho, linha=linha)
+
+    def test_operadores_com_tipos_inferidos_corretos_sao_aceitos(self):
+        ino("INCANTATIO f(p, q) { SORTILEGIO (!p && q > 1.5) { LUMOS(-q); } } CAST f(ALWAYS, 2.5);")
+
     def test_recursao_e_aceita(self):
         c = ino("INCANTATIO fat(n) { SORTILEGIO (n <= 1) { EXPELLIARMUS 1; } EXPELLIARMUS n * CAST fat(n - 1); }"
                 " VARINHA GALLEON r ~> CAST fat(5);")

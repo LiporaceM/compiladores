@@ -56,13 +56,10 @@ Consequências:
 | S12 | **Aridade das primitivas Arduino** (`ARDUINO_BUILTINS`): `pinMode` 2, `digitalWrite` 2, `digitalRead` 1, `analogWrite` 2, `analogRead` 1, `delay` 1 | `Comando Arduino 'pinMode' requer 2 parâmetro(s), recebidos 1.` |
 
 Os parâmetros de `INCANTATIO` não têm tipo declarado: entram na tabela com tipo `None`
-(impresso como `(parâmetro)`). Nas expressões binárias, um operando sem tipo faz a checagem
-ser adiada (`infer_type` devolve `None`). Quem fecha essa lacuna é o back-end, que infere o
-tipo e checa de novo (seção 3.3).
-
-> **Limitação conhecida:** os operadores **unários** não adiam a checagem. `!p` e `-p`, com
-> `p` parâmetro, são rejeitados (S8) mesmo quando `p` receberia VERITAS ou GALLEON. Contorno
-> atual: `p == ALWAYS` e `0 - p`. A correção fica no núcleo (`infer_type`, ramo `UnaryOpNode`).
+(impresso como `(parâmetro)`). Um operando sem tipo faz a checagem do operador ser
+**adiada**: o binário devolve `None`, o `!` devolve VERITAS e o `-`/`+` unário devolve `None`.
+Quem fecha essa lacuna é o back-end, que infere o tipo do parâmetro e reaplica S6–S8
+(seção 3.3).
 
 ### 3.2 Extensões do back-end (`SemanticAnalyzerArduino`)
 
@@ -81,6 +78,9 @@ Algumas regras só podem ser verificadas depois que o back-end infere os tipos d
 parâmetros e retornos (ver [backend.md](backend.md)). Elas saem como
 `💥 [Erro de Transpilação] Linha L, Coluna C: ...`:
 
+- operadores (S6–S8) com operandos cujo tipo só ficou conhecido pela inferência:
+  `!p` com `p` GALLEON, `p && ALWAYS`, `p + 1` com `p` PARCHMENT…
+  (`operador '!' exige operando VERITAS, encontrado GALLEON.`);
 - um feitiço que devolve tipos diferentes em `EXPELLIARMUS` distintos;
 - um argumento cujo tipo difere do tipo inferido para o parâmetro na primeira chamada;
 - valor de retorno atribuído a variável de outro tipo;

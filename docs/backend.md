@@ -102,8 +102,8 @@ A PotterLang não declara tipos de parâmetros nem de retorno, mas o C++ exige. 
 O tipo de um identificador vem do `Symbol` anotado pelo semântico (então cada escopo tem o
 seu tipo) e, para parâmetros, da assinatura inferida.
 
-Depois da inferência, `_verificar_tipos` reconfere retornos, argumentos, atribuições e
-condições (lista em [semantica.md §3.3](semantica.md)).
+Depois da inferência, `_verificar_tipos` reconfere operadores, retornos, argumentos,
+atribuições e condições (lista em [semantica.md §3.3](semantica.md)).
 
 Resultados:
 
@@ -147,7 +147,5 @@ Todas foram verificadas rodando o compilador:
 - `INCANTATIO` só no nível do `HOGWARTS` (não há funções aninhadas).
 - Parâmetros recebem o tipo da **primeira** chamada; chamar depois com outro tipo é erro
   (não há sobrecarga).
-- Unários sobre parâmetros (`!p`, `-p`) são rejeitados pelo semântico do núcleo: ver
-  [semantica.md §3.1](semantica.md). Contorno: `p == ALWAYS`, `0 - p`.
 - Primitivas Arduino suportadas: só as seis da tabela 1 (não há `millis`, `tone` etc.). O
   Duelo Arcano mede o tempo com um contador de ticks de `delay(TICK_MS)`.

@@ -454,6 +454,8 @@ class TranspilerArduino:
         blocos += [(info.node.body, self._func_env(info)) for info in self.funcs.values()]
         for stmts, env in blocos:
             for n in walk(stmts):
+                if isinstance(n, (BinaryOpNode, UnaryOpNode)):
+                    self._checar_operador(n, env)
                 if isinstance(n, CallNode) and n.name in self.funcs:
                     info = self.funcs[n.name]
                     for param, arg in zip(info.node.params, n.args):
@@ -474,6 +476,37 @@ class TranspilerArduino:
                     if t and t != "VERITAS":
                         nome = "SORTILEGIO" if isinstance(n, SortilegioNode) else "VIRATEMPO"
                         raise erro_transpilacao(n, f"condição do {nome} exige VERITAS, encontrado {t}.")
+
+    def _checar_operador(self, n, env):
+        """Reaplica as regras de operadores do núcleo (S6-S8) agora que os parâmetros têm tipo.
+
+        O semântico do núcleo adia a checagem quando um operando é parâmetro (tipo
+        desconhecido); sem isto, `!p` com p GALLEON viraria C++ válido mas mal tipado.
+        """
+        numericos = ("GALLEON", "SICKLE")
+        if isinstance(n, UnaryOpNode):
+            t = self.infer(n.operand, env)
+            if t is None:
+                return
+            if n.op == "!" and t != "VERITAS":
+                raise erro_transpilacao(n, f"operador '!' exige operando VERITAS, encontrado {t}.")
+            if n.op in ("-", "+") and t not in numericos:
+                raise erro_transpilacao(n, f"operador '{n.op}' exige operando numérico, encontrado {t}.")
+            return
+        lt, rt = self.infer(n.left, env), self.infer(n.right, env)
+        if lt is None or rt is None:
+            return
+        if n.op in ("&&", "||"):
+            ok = lt == rt == "VERITAS"
+        elif n.op in ("+", "-", "*", "/", "%"):
+            ok = lt in numericos and rt in numericos
+        elif n.op in ("<", ">", "<=", ">="):
+            ok = lt == rt and lt in numericos
+        else:  # == !=
+            ok = lt == rt
+        if not ok:
+            raise erro_transpilacao(n, f"operador '{n.op}' não aceita {lt} e {rt} "
+                                       f"(tipos inferidos dos parâmetros).")
 
     # ------------------------------------------------------------------
     # Statements
