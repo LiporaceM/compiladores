@@ -82,6 +82,9 @@ python compilar_e_gravar.py --listar-portas
 python compilar_e_gravar.py duelo_arcano.potter --porta COM3
 python compilar_e_gravar.py duelo_arcano.potter --so-compilar
 
+# código intermediário de três endereços (TAC)
+python potter_tac.py duelo_arcano.potter
+
 # demonstração do front-end (tokens, AST, tabela de símbolos e erros)
 python exemplo_potter.py
 ```
@@ -135,6 +138,7 @@ void loop() {
 potter_lang.py           front-end: Lexer, AST, Parser LL(1), Semântico + tabela de símbolos
 potter_arduino.py        back-end: extensões, semântico Arduino e transpilador -> .ino
 compilar_e_gravar.py     pipeline .potter -> .ino -> arduino-cli compile -> upload
+potter_tac.py            código intermediário de três endereços (TAC) + interpretador
 potter_api.py            funções puras usadas pela IDE (tokens, AST, tabela, .ino, diagnósticos)
 potter_ide.py            Potter IDE (Tkinter)
 exemplo_potter.py        demonstração do front-end no terminal
@@ -155,5 +159,6 @@ test_*.py                testes automatizados (unittest)
 | [docs/linguagem.md](docs/linguagem.md) | gramática EBNF, tokens, precedência, tipos, extensões do back-end |
 | [docs/semantica.md](docs/semantica.md) | regras semânticas, escopos e a tabela de símbolos real do Duelo Arcano |
 | [docs/backend.md](docs/backend.md) | tradução PotterLang → C++, inferência de tipos, `setup()`/`loop()`, limitações |
+| [docs/tac.md](docs/tac.md) | código intermediário de três endereços: instruções, esquemas de tradução, validação |
 | [docs/hardware.md](docs/hardware.md) | pinagem, componentes, esquema e checklist de teste na placa |
 | [docs/testes.md](docs/testes.md) | o que cada suíte de testes cobre e como rodar |
