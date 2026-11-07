@@ -299,6 +299,9 @@ class TranspilerArduino:
     def ident(self, name: str) -> str:
         if name in ARDUINO_CONSTANTS:
             return ARDUINO_CONSTANTS[name]
+        if not name.isascii():
+            # o avr-gcc 7.3 do core Arduino não aceita identificadores UTF-8: ç -> _u00e7
+            return "".join(ch if ch.isascii() else f"_u{ord(ch):04x}" for ch in name)
         if name in RESERVED:
             return name + "_pl"
         return name

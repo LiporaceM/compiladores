@@ -223,6 +223,12 @@ class EndurecimentoTests(unittest.TestCase):
         self.assertIn("const int B1_pl = 2;", c)
         self.assertIn("int PORTB_pl = (B1_pl + DEC_pl);", c)
 
+    def test_identificador_com_acento_vira_ascii_no_cpp(self):
+        c = ino("VARINHA GALLEON ação ~> 1; LUMOS(ação);")
+        self.assertIn("int a_u00e7_u00e3o = 1;", c)
+        self.assertIn("Serial.println(a_u00e7_u00e3o);", c)
+        self.assertTrue(c.isascii())
+
     def test_funcao_com_nome_do_core_arduino_e_renomeada(self):
         self.assertIn("void init_pl()", ino("INCANTATIO init() { LUMOS(1); } CAST init();"))
 

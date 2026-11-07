@@ -181,6 +181,7 @@ PROGRAMAS_DE_BORDA = {
     "NomesDeMacros": "VOTO GALLEON B1 ~> 2; VOTO GALLEON DEC ~> 3; INCANTATIO init() { LUMOS(B1 + DEC); } CAST init();",
     "LimitesGalleon": "VARINHA GALLEON a ~> 32767; VARINHA GALLEON b ~> -32768; LUMOS(a); LUMOS(b);",
     "StringsEspeciais": 'LUMOS("aspas \\ barra ?? trigrafo\ttab Grifinória 100%");',
+    "IdentificadorComAcento": "VARINHA GALLEON poção ~> 3; LUMOS(poção);",
     "TextoEVeritas": 'INCANTATIO saudar(nome, ok) { SORTILEGIO (ok) { LUMOS(nome); } }'
                      ' CAST saudar("Harry", ALWAYS);',
 }

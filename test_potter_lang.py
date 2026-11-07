@@ -58,6 +58,11 @@ class LexerTests(unittest.TestCase):
         ])
         self.assertEqual(tokens[2].value, 2.5)
 
+    def test_unicode_digits_are_not_numbers(self):
+        with self.assertRaises(SyntaxError) as ctx:
+            LexerPotter('x ~> 2²;').tokenize()
+        self.assertIn('Coluna 7', str(ctx.exception))
+
     def test_lexical_errors(self):
         for source in ('@', '1.2.3', '"unterminated', '=', '&'):
             with self.subTest(source=source):

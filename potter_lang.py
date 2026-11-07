@@ -58,6 +58,9 @@ class TokenType(enum.Enum):
     EOF = "EOF"
 
 
+DIGITOS = "0123456789"
+
+
 class Token:
     def __init__(self, type_: TokenType, value: Any, line: int, column: int):
         self.type = type_
@@ -246,11 +249,12 @@ class LexerPotter:
                 continue
 
             # Números (Galleons e Sickles)
-            if char.isdigit():
+            # Só dígitos ASCII: str.isdigit() aceitaria '²', que int() não converte.
+            if char in DIGITOS:
                 start_col = self.col
                 num_str = ""
                 is_float = False
-                while self.pos < len(self.source) and (self.source[self.pos].isdigit() or self.source[self.pos] == '.'):
+                while self.pos < len(self.source) and self.source[self.pos] in DIGITOS + '.':
                     if self.source[self.pos] == '.':
                         if is_float:
                             self.error("Número bruxo malformado com múltiplos pontos.")
