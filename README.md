@@ -151,6 +151,7 @@ test_*.py                testes automatizados (unittest)
 
 | Documento | Conteúdo |
 |-----------|----------|
+| [docs/frontend.md](docs/frontend.md) | explicação detalhada do front-end (`potter_lang.py`): Lexer, AST, Parser e Semântico |
 | [docs/linguagem.md](docs/linguagem.md) | gramática EBNF, tokens, precedência, tipos, extensões do back-end |
 | [docs/semantica.md](docs/semantica.md) | regras semânticas, escopos e a tabela de símbolos real do Duelo Arcano |
 | [docs/backend.md](docs/backend.md) | tradução PotterLang → C++, inferência de tipos, `setup()`/`loop()`, limitações |
