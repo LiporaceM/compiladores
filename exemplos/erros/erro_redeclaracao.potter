@@ -1,0 +1,5 @@
+-- ERRO SEMANTICO: Redeclaração no mesmo escopo
+HOGWARTS Teste {
+    VARINHA GALLEON x ~> 1;
+    VARINHA GALLEON x ~> 2;
+}

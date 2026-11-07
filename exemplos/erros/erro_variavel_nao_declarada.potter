@@ -1,0 +1,4 @@
+-- ERRO SEMANTICO: Variável não declarada
+HOGWARTS Teste {
+    LUMOS(fantasma);
+}

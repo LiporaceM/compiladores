@@ -1,0 +1,13 @@
+-- Pisca o LED embutido do Arduino UNO (pino 13) a cada meio segundo.
+HOGWARTS PiscaLed {
+    VOTO GALLEON INTERVALO_MS ~> 500;
+
+    CAST pinMode(LED_EMBUTIDO, SAIDA);
+
+    VIRATEMPO (ALWAYS) {
+        CAST digitalWrite(LED_EMBUTIDO, ALTO);
+        CAST delay(INTERVALO_MS);
+        CAST digitalWrite(LED_EMBUTIDO, BAIXO);
+        CAST delay(INTERVALO_MS);
+    }
+}

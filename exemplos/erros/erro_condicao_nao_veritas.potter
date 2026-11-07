@@ -1,0 +1,7 @@
+-- ERRO SEMANTICO: Condição não booleana no SORTILEGIO
+HOGWARTS Teste {
+    VARINHA GALLEON x ~> 5;
+    SORTILEGIO (x + 1) {
+        LUMOS(x);
+    }
+}

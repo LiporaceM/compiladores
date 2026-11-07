@@ -15,11 +15,12 @@ Requer o arduino-cli com o core AVR instalado:
     arduino-cli core install arduino:avr
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
 import sys
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from potter_arduino import TranspileError, caminho_sketch, compilar, configurar_saida_utf8, salvar_ino
 from potter_lang import SemanticError
@@ -31,6 +32,9 @@ LOCAIS_CONHECIDOS = (
 )
 
 Log = Callable[[str], None]
+
+# Evita que cada chamada ao arduino-cli abra uma janela de console (IDE no Windows).
+_SEM_JANELA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def encontrar_arduino_cli() -> Optional[str]:
@@ -48,7 +52,8 @@ def executar(cmd: List[str], log: Log) -> int:
     log("> " + " ".join(cmd))
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, encoding="utf-8", errors="replace")
+                                text=True, encoding="utf-8", errors="replace",
+                                creationflags=_SEM_JANELA)
     except OSError as e:
         log(f"[erro] não foi possível executar {cmd[0]}: {e}")
         return 1
@@ -103,6 +108,36 @@ def compilar_e_gravar(arquivo: str, porta: Optional[str] = None, fqbn: str = FQB
         return 1
     log("Feitiço gravado na placa com sucesso!")
     return 0
+
+
+def interpretar_portas(json_texto: str) -> List[Tuple[str, str]]:
+    """Saída de `arduino-cli board list --format json` -> [(porta, descrição)], placas reconhecidas primeiro."""
+    try:
+        dados = json.loads(json_texto)
+    except ValueError:
+        return []
+    portas = []
+    for item in dados.get("detected_ports", []) if isinstance(dados, dict) else []:
+        porta = item.get("port", {})
+        if porta.get("protocol") != "serial" or not porta.get("address"):
+            continue
+        placas = [b.get("name", "") for b in item.get("matching_boards", []) if b.get("name")]
+        descricao = ", ".join(placas) or porta.get("protocol_label", "Porta serial")
+        portas.append((porta["address"], descricao, bool(placas)))
+    portas.sort(key=lambda p: (not p[2], p[0]))
+    return [(endereco, descricao) for endereco, descricao, _ in portas]
+
+
+def portas_detectadas() -> List[Tuple[str, str]]:
+    cli = encontrar_arduino_cli()
+    if cli is None:
+        return []
+    try:
+        r = subprocess.run([cli, "board", "list", "--format", "json"],
+                           capture_output=True, text=True, timeout=30, creationflags=_SEM_JANELA)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return interpretar_portas(r.stdout)
 
 
 def listar_portas(log: Log = print) -> int:

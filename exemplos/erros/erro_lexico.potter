@@ -1,0 +1,5 @@
+-- ERRO LEXICO: '@' nao pertence ao alfabeto da PotterLang
+HOGWARTS Teste {
+    VARINHA GALLEON pontos ~> 10;
+    pontos ~> pontos @ 2;
+}

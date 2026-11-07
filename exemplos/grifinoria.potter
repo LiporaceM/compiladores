@@ -1,0 +1,33 @@
+-- Exemplo original do exemplo_potter.py: declaracoes, SORTILEGIO, VIRATEMPO e INCANTATIO.
+HOGWARTS Grifinoria {
+    -- Declaração de Votos e Varinhas
+    VOTO SICKLE velocidadePomo ~> 299792.458;
+    VARINHA GALLEON pontosGrifinoria ~> 100;
+    VARINHA PARCHMENT mensagem ~> "Bem-vindo a Hogwarts!";
+    VARINHA VERITAS caliceAtivo ~> NEVER;
+
+    LUMOS(mensagem);
+
+    -- Condicional do Chapéu Seletor
+    SORTILEGIO (pontosGrifinoria > 0) {
+        LUMOS("A Grifinória lidera o campeonato!");
+        caliceAtivo ~> ALWAYS;
+    } SENAO {
+        LUMOS("Força nas próximas partidas!");
+    }
+
+    -- Laço Vira-Tempo
+    VARINHA GALLEON horas ~> 0;
+    VIRATEMPO (horas < 3) {
+        horas ~> horas + 1;
+        LUMOS("Usando o Vira-Tempo para a hora número:");
+        LUMOS(horas);
+    }
+
+    -- Feitiço e Lançamento
+    INCANTATIO saudarMaligno(nome) {
+        LUMOS(nome);
+        EXPELLIARMUS ALWAYS;
+    }
+    CAST saudarMaligno("Voldemort");
+}

@@ -1,0 +1,4 @@
+-- ERRO SEMANTICO: Incompatibilidade de Tipo
+HOGWARTS Teste {
+    VARINHA GALLEON idade ~> "dezesseis";
+}

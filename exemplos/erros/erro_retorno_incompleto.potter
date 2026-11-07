@@ -1,0 +1,9 @@
+-- ERRO SEMANTICO (back-end): nem todo caminho do INCANTATIO retorna valor
+HOGWARTS Teste {
+    INCANTATIO sinal(x) {
+        SORTILEGIO (x > 0) {
+            EXPELLIARMUS 1;
+        }
+    }
+    LUMOS(CAST sinal(5));
+}

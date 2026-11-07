@@ -1,0 +1,5 @@
+-- ERRO DE TRANSPILACAO: GALLEON vira 'int' de 16 bits no Arduino UNO
+HOGWARTS Teste {
+    VARINHA GALLEON distancia ~> 40000;
+    LUMOS(distancia);
+}

@@ -1,0 +1,5 @@
+-- ERRO SINTATICO: falta ';' no fim do LUMOS
+HOGWARTS Teste {
+    VARINHA GALLEON pontos ~> 10;
+    LUMOS(pontos)
+}
