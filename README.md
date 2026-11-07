@@ -13,7 +13,7 @@ dois jogadores escolhem feitiços em botões e LEDs mostram quem venceu.
             potter_lang.py                                                potter_arduino.py        compilar_e_gravar.py
 ```
 
-> **TODO(equipe):** nomes dos 4 integrantes e do professor.
+> Alex Oliveira • João victor Bathomarco  • Luahn • Matheus Liporace
 
 ![Potter IDE compilando o Duelo Arcano](docs/img/ide_compilar.png)
 
