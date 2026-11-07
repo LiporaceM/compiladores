@@ -671,10 +671,24 @@ def main(argv=None) -> int:
              "(a IDE do Arduino exige pasta com o mesmo nome do sketch)",
     )
     ap.add_argument("--stdout", action="store_true", help="imprime o .ino em vez de gravar")
+    fase = ap.add_mutually_exclusive_group()
+    fase.add_argument("--tokens", action="store_true", help="só imprime a tabela de tokens (léxico)")
+    fase.add_argument("--ast", action="store_true", help="só imprime a AST (sintático)")
+    fase.add_argument("--tabela", action="store_true", help="só imprime a tabela de símbolos (semântico)")
     args = ap.parse_args(argv)
 
     with open(args.arquivo, encoding="utf-8") as f:
         fonte = f.read()
+
+    if args.tokens or args.ast or args.tabela:
+        import potter_api  # import tardio: potter_api depende deste módulo
+        funcao = (potter_api.obter_tokens if args.tokens else
+                  potter_api.obter_ast if args.ast else potter_api.obter_tabela_simbolos)
+        r = funcao(fonte)
+        for d in r.avisos:
+            print(f"[aviso] {d.mensagem}", file=sys.stderr)
+        print(r.texto, file=sys.stdout if r.ok else sys.stderr)
+        return 0 if r.ok else 1
     try:
         nome, ino, avisos = compilar(fonte)
     except (SyntaxError, SemanticError, TranspileError) as e:

@@ -257,6 +257,32 @@ class EndurecimentoTests(unittest.TestCase):
         self.assertTrue(any("'b'" in a and "nunca é usado" in a for a in avisos), avisos)
 
 
+class CliTests(unittest.TestCase):
+    DUELO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "duelo_arcano.potter")
+
+    def rodar(self, *args):
+        import contextlib
+        import io
+        from potter_arduino import main
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            codigo = main([self.DUELO, *args])
+        return codigo, out.getvalue(), err.getvalue()
+
+    def test_fases_isoladas(self):
+        for flag, trecho in (("--tokens", "INCANTATIO"), ("--ast", "HOGWARTS (DueloArcano)"),
+                             ("--tabela", "venceMagia")):
+            with self.subTest(flag=flag):
+                codigo, out, _ = self.rodar(flag)
+                self.assertEqual(codigo, 0)
+                self.assertIn(trecho, out)
+
+    def test_stdout_gera_ino(self):
+        codigo, out, _ = self.rodar("--stdout")
+        self.assertEqual(codigo, 0)
+        self.assertIn("void loop() {", out)
+
+
 class DueloArcanoTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
