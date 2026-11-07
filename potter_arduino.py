@@ -488,6 +488,18 @@ def compilar(source: str):
     return ast.name, ino, t.warnings
 
 
+def caminho_sketch(arquivo_potter: str, nome: str) -> str:
+    """<pasta do fonte>/<Nome>/<Nome>.ino  (a IDE do Arduino exige a pasta com o nome do sketch)."""
+    pasta = os.path.dirname(os.path.abspath(arquivo_potter))
+    return os.path.join(pasta, nome, f"{nome}.ino")
+
+
+def salvar_ino(destino: str, ino: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(destino)), exist_ok=True)
+    with open(destino, "w", encoding="utf-8") as f:
+        f.write(ino)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="potterc",
@@ -516,10 +528,8 @@ def main(argv=None) -> int:
         print(ino)
         return 0
 
-    destino = args.saida or os.path.join(os.path.dirname(os.path.abspath(args.arquivo)), nome, f"{nome}.ino")
-    os.makedirs(os.path.dirname(os.path.abspath(destino)), exist_ok=True)
-    with open(destino, "w", encoding="utf-8") as f:
-        f.write(ino)
+    destino = args.saida or caminho_sketch(args.arquivo, nome)
+    salvar_ino(destino, ino)
     print(f"Feitico compilado com sucesso: {destino}")
     return 0
 
