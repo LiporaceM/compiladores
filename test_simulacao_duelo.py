@@ -169,5 +169,55 @@ class SimulacaoDueloTests(unittest.TestCase):
         self.assertGreater(t_msg - RODADA_ATIVA_MS, 3000)
 
 
+PROGRAMAS_DE_BORDA = {
+    "MesmoNomeEmBlocos": 'INCANTATIO g(v) { LUMOS(v); } SORTILEGIO (ALWAYS) { VARINHA SICKLE x ~> 1.5; CAST g(x); }'
+                         ' SENAO { VARINHA PARCHMENT x ~> "a"; LUMOS(x); }',
+    "SombraDeGlobal": "VARINHA GALLEON x ~> 7; INCANTATIO h() { LUMOS(x % 2);"
+                      " SORTILEGIO (ALWAYS) { VARINHA SICKLE x ~> 2.5; LUMOS(x % 2.0); } } CAST h();",
+    "Recursao": "INCANTATIO fat(n) { SORTILEGIO (n <= 1) { EXPELLIARMUS 1; } EXPELLIARMUS n * CAST fat(n - 1); }"
+                " LUMOS(CAST fat(5));",
+    "RetornoNosDoisRamos": "INCANTATIO f(x) { SORTILEGIO (x > 0) { EXPELLIARMUS 1.5; } SENAO { EXPELLIARMUS 2.5; } }"
+                           " LUMOS(CAST f(3));",
+    "NomesDeMacros": "VOTO GALLEON B1 ~> 2; VOTO GALLEON DEC ~> 3; INCANTATIO init() { LUMOS(B1 + DEC); } CAST init();",
+    "LimitesGalleon": "VARINHA GALLEON a ~> 32767; VARINHA GALLEON b ~> -32768; LUMOS(a); LUMOS(b);",
+    "StringsEspeciais": 'LUMOS("aspas \\ barra ?? trigrafo\ttab Grifinória 100%");',
+    "TextoEVeritas": 'INCANTATIO saudar(nome, ok) { SORTILEGIO (ok) { LUMOS(nome); } }'
+                     ' CAST saudar("Harry", ALWAYS);',
+}
+
+
+@unittest.skipIf(GPP is None, "g++ não encontrado no PATH")
+class ProgramasDeBordaCompilamTests(unittest.TestCase):
+    """O C++ gerado para casos-limite válidos compila com g++ estrito (sem -fpermissive)."""
+
+    def test_programas_de_borda_compilam(self):
+        with tempfile.TemporaryDirectory(prefix="potter_borda_") as tmp:
+            for nome, corpo in PROGRAMAS_DE_BORDA.items():
+                with self.subTest(programa=nome):
+                    _, ino, _ = compilar(f"HOGWARTS {nome} {{ {corpo} }}")
+                    caminho = os.path.join(tmp, nome + ".ino")
+                    with open(caminho, "w", encoding="utf-8") as f:
+                        f.write(ino)
+                    r = subprocess.run(
+                        [GPP, "-std=c++17", "-Wall", "-Werror=return-type", "-I", SIM,
+                         "-include", "Arduino.h", "-x", "c++", caminho, "-x", "none",
+                         os.path.join(SIM, "sim_main.cpp"), "-o", os.path.join(tmp, nome + ".exe")],
+                        capture_output=True, text=True)
+                    self.assertEqual(r.returncode, 0, r.stderr)
+
+
+CLI = shutil.which("arduino-cli") or next(
+    (c for c in (r"C:\Program Files\Arduino CLI\arduino-cli.exe",) if os.path.isfile(c)), None)
+
+
+@unittest.skipIf(CLI is None, "arduino-cli não encontrado")
+class ArduinoCliTests(unittest.TestCase):
+    def test_duelo_compila_para_o_uno(self):
+        r = subprocess.run([CLI, "compile", "--fqbn", "arduino:avr:uno", os.path.join(RAIZ, "DueloArcano")],
+                           capture_output=True, text=True, timeout=600)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Sketch uses", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

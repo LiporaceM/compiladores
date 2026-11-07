@@ -135,6 +135,108 @@ class ErrosDeTranspilacaoTests(unittest.TestCase):
             ino("VOTO GALLEON x ~> 1; x ~> 2;")
 
 
+class EndurecimentoTests(unittest.TestCase):
+    """Casos que antes geravam C++ inválido ou com comportamento silenciosamente errado."""
+
+    def assert_erro(self, corpo, trecho, linha=None):
+        with self.assertRaises((SemanticError, TranspileError)) as ctx:
+            ino(corpo)
+        msg = str(ctx.exception)
+        self.assertIn(trecho, msg)
+        if linha is not None:
+            self.assertIn(f"Linha {linha}", msg)
+
+    # --- EXPELLIARMUS ---
+    def test_retorno_em_apenas_um_ramo_e_rejeitado(self):
+        self.assert_erro("INCANTATIO f(x) {\n SORTILEGIO (x > 0) { EXPELLIARMUS 1; }\n }\n CAST f(2);",
+                         "nem todo caminho", linha=1)
+
+    def test_retorno_nos_dois_ramos_e_aceito(self):
+        c = ino("INCANTATIO f(x) { SORTILEGIO (x > 0) { EXPELLIARMUS 1; } SENAO { EXPELLIARMUS 2; } }"
+                " VARINHA GALLEON r ~> CAST f(2);")
+        self.assertIn("int f(int x)", c)
+
+    def test_retorno_dentro_de_laco_infinito_e_aceito(self):
+        ino("INCANTATIO f() { VIRATEMPO (ALWAYS) { EXPELLIARMUS 1; } } VARINHA GALLEON r ~> CAST f();")
+
+    def test_recursao_e_aceita(self):
+        c = ino("INCANTATIO fat(n) { SORTILEGIO (n <= 1) { EXPELLIARMUS 1; } EXPELLIARMUS n * CAST fat(n - 1); }"
+                " VARINHA GALLEON r ~> CAST fat(5);")
+        self.assertIn("int fat(int n)", c)
+
+    def test_retornos_de_tipos_diferentes_sao_rejeitados(self):
+        self.assert_erro("INCANTATIO f(x) {\n SORTILEGIO (x > 0) { EXPELLIARMUS 1; }\n EXPELLIARMUS ALWAYS; }"
+                         " VARINHA GALLEON r ~> CAST f(2);", "tipos diferentes", linha=3)
+
+    # --- função sem retorno em expressão ---
+    def test_funcao_sem_retorno_em_expressao_e_erro_semantico_com_linha(self):
+        with self.assertRaises(SemanticError) as ctx:
+            ino("INCANTATIO f() { LUMOS(1); }\n\n VARINHA GALLEON x ~> CAST f();")
+        self.assertIn("Linha 3", str(ctx.exception))
+        self.assertIn("não conjura EXPELLIARMUS", str(ctx.exception))
+
+    def test_funcao_sem_retorno_como_comando_continua_valida(self):
+        self.assertIn("void f()", ino("INCANTATIO f() { LUMOS(1); } CAST f();"))
+
+    # --- tipos após a inferência ---
+    def test_parametro_com_tipos_conflitantes_e_rejeitado(self):
+        self.assert_erro('INCANTATIO f(a) { LUMOS(a); }\n CAST f(1);\n CAST f("x");',
+                         "parâmetro 'a'", linha=3)
+
+    def test_retorno_usado_com_tipo_errado_e_rejeitado(self):
+        self.assert_erro("INCANTATIO f(a) { EXPELLIARMUS a + 1; }\n VARINHA VERITAS b ~> CAST f(1);",
+                         "VERITAS", linha=2)
+
+    def test_condicao_com_retorno_nao_veritas_e_rejeitada(self):
+        self.assert_erro("INCANTATIO f() { EXPELLIARMUS 1; }\n SORTILEGIO (CAST f()) { LUMOS(1); }",
+                         "VERITAS", linha=2)
+
+    # --- escopos ---
+    def test_mesmo_nome_em_blocos_diferentes_tem_tipos_independentes(self):
+        c = ino('INCANTATIO g(v) { LUMOS(v); }'
+                ' SORTILEGIO (ALWAYS) { VARINHA SICKLE x ~> 1.5; CAST g(x); }'
+                ' SENAO { VARINHA PARCHMENT x ~> "a"; LUMOS(x); }')
+        self.assertIn("void g(float v)", c)
+
+    def test_local_que_sombreia_global_nao_afeta_o_tipo_do_global(self):
+        c = ino("VARINHA GALLEON x ~> 7;"
+                " INCANTATIO h() { LUMOS(x % 2); SORTILEGIO (ALWAYS) { VARINHA SICKLE x ~> 2.5; LUMOS(x % 2.0); } }"
+                " CAST h();")
+        self.assertIn("Serial.println((x % 2));", c)
+        self.assertIn("fmod(x, 2.0f)", c)
+
+    def test_constante_arduino_nao_pode_ser_redeclarada(self):
+        self.assert_erro("INCANTATIO f() { VARINHA GALLEON ALTO ~> 5; }", "constante nativa")
+
+    # --- GALLEON no UNO ---
+    def test_galleon_acima_de_32767_e_rejeitado(self):
+        self.assert_erro("VARINHA GALLEON x ~> 40000;", "16 bits", linha=1)
+
+    def test_galleon_nos_limites_e_aceito(self):
+        c = ino("VARINHA GALLEON a ~> 32767; VARINHA GALLEON b ~> -32768;")
+        self.assertIn("int a = 32767;", c)
+        self.assertIn("int b = (-32768);", c)
+
+    # --- nomes ---
+    def test_nomes_de_macros_do_arduino_sao_renomeados(self):
+        c = ino("VOTO GALLEON B1 ~> 2; VOTO GALLEON DEC ~> 3; VARINHA GALLEON PORTB ~> B1 + DEC;")
+        self.assertIn("const int B1_pl = 2;", c)
+        self.assertIn("int PORTB_pl = (B1_pl + DEC_pl);", c)
+
+    def test_funcao_com_nome_do_core_arduino_e_renomeada(self):
+        self.assertIn("void init_pl()", ino("INCANTATIO init() { LUMOS(1); } CAST init();"))
+
+    # --- strings ---
+    def test_caracteres_especiais_em_strings_sao_escapados(self):
+        c = ino('LUMOS("tab\taspas\\\\fim");')
+        self.assertIn(r'F("tab\taspas\\\\fim")', c)
+
+    # --- parâmetros ---
+    def test_parametro_nunca_usado_gera_aviso(self):
+        _, _, avisos = compilar("HOGWARTS T { INCANTATIO f(a, b) { LUMOS(a); } CAST f(1, 2); }")
+        self.assertTrue(any("'b'" in a and "nunca é usado" in a for a in avisos), avisos)
+
+
 class DueloArcanoTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

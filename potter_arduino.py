@@ -65,6 +65,23 @@ ARDUINO_CONSTANTS = {
 
 BUILTIN_RETURNS = {"digitalRead": "GALLEON", "analogRead": "GALLEON"}
 
+GALLEON_MIN, GALLEON_MAX = -32768, 32767  # 'int' de 16 bits do ATmega328P
+
+
+def retorna_valor(func: FuncDeclNode) -> bool:
+    return any(isinstance(n, ExpelliarmusNode) for n in walk(func.body))
+
+
+def sempre_retorna(stmts) -> bool:
+    """True se toda execução da lista de comandos termina em EXPELLIARMUS (ou nunca termina)."""
+    for s in stmts:
+        if isinstance(s, ExpelliarmusNode) or is_infinite_loop(s):
+            return True
+        if (isinstance(s, SortilegioNode) and s.else_branch is not None
+                and sempre_retorna(s.then_branch) and sempre_retorna(s.else_branch)):
+            return True
+    return False
+
 
 class ParserPotterArduino(ParserPotter):
     """Permite `CAST feitiço(args)` dentro de expressões (sem ';')."""
@@ -87,21 +104,80 @@ class ParserPotterArduino(ParserPotter):
 
 
 class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
-    """Pré-declara as constantes do Arduino e tipa CAST usado como expressão."""
+    """Regras semânticas extras do back-end Arduino.
+
+    * pré-declara as constantes do Arduino (ALTO, BAIXO, ...) e proíbe redeclará-las;
+    * tipa CAST usado como expressão e rejeita feitiços/comandos sem valor de retorno;
+    * exige que um INCANTATIO com EXPELLIARMUS retorne em todos os caminhos;
+    * avisa sobre parâmetros nunca usados;
+    * anota cada IdentifierNode/AssignNode/VarDeclNode com o Symbol resolvido
+      (atributo `simbolo`), para o transpilador saber o tipo respeitando escopos.
+    """
 
     def __init__(self):
         super().__init__()
+        self.avisos: List[str] = []
+        self.funcoes: Dict[str, FuncDeclNode] = {}
         for nome in ARDUINO_CONSTANTS:
             self.global_scope.declare(Symbol(nome, "GALLEON", "VOTO", 0))
+
+    def _checar_nome(self, nome: str, line: int):
+        if nome in ARDUINO_CONSTANTS:
+            self.error(line, f"'{nome}' é uma constante nativa do Arduino "
+                             f"({ARDUINO_CONSTANTS[nome]}) e não pode ser redeclarada.")
+
+    def visit_VarDeclNode(self, node: VarDeclNode):
+        self._checar_nome(node.name, node.line)
+        super().visit_VarDeclNode(node)
+        node.simbolo = self.current_scope.symbols[node.name]
+
+    def visit_AssignNode(self, node: AssignNode):
+        super().visit_AssignNode(node)
+        node.simbolo = self.current_scope.resolve(node.name)
+
+    def visit_FuncDeclNode(self, node: FuncDeclNode):
+        self._checar_nome(node.name, node.line)
+        for p in node.params:
+            self._checar_nome(p, node.line)
+        self.funcoes[node.name] = node
+        inicio = len(self.tabela_completa)
+        super().visit_FuncDeclNode(node)
+
+        # o núcleo registra o feitiço e, logo em seguida, seus parâmetros
+        params = self.tabela_completa[inicio + 1: inicio + 1 + len(node.params)]
+        for s in params:
+            s.param_de = node.name
+
+        if retorna_valor(node) and not sempre_retorna(node.body):
+            self.error(node.line,
+                       f"INCANTATIO '{node.name}' conjura EXPELLIARMUS, mas nem todo caminho "
+                       f"termina em EXPELLIARMUS (adicione um EXPELLIARMUS no fim ou um SENAO).")
+
+        lidos = {id(n.simbolo) for n in walk(node.body)
+                 if isinstance(n, IdentifierNode) and getattr(n, "simbolo", None) is not None}
+        for s in params:
+            if id(s) not in lidos:
+                self.avisos.append(f"Linha {node.line}: parâmetro '{s.name}' do INCANTATIO "
+                                   f"'{node.name}' nunca é usado.")
 
     def infer_type(self, expr):
         if isinstance(expr, CallNode):
             self.visit_CallNode(expr)
             simbolo = self.current_scope.resolve(expr.name)
             if simbolo is None:  # builtin Arduino
-                return BUILTIN_RETURNS.get(expr.name)
-            return None  # feitiço do usuário: tipo de retorno livre
-        return super().infer_type(expr)
+                if expr.name not in BUILTIN_RETURNS:
+                    self.error(expr.line, f"Comando Arduino '{expr.name}' não devolve valor "
+                                          f"e não pode ser usado em uma expressão.")
+                return BUILTIN_RETURNS[expr.name]
+            func = self.funcoes.get(expr.name)
+            if func is not None and not retorna_valor(func):
+                self.error(expr.line, f"INCANTATIO '{expr.name}' não conjura EXPELLIARMUS "
+                                      f"(não devolve valor) e não pode ser usado em uma expressão.")
+            return None  # tipo de retorno definido pelo transpilador (inferência)
+        tipo = super().infer_type(expr)
+        if isinstance(expr, IdentifierNode):
+            expr.simbolo = self.current_scope.resolve(expr.name)
+        return tipo
 
 
 # =====================================================================
@@ -110,6 +186,11 @@ class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
 
 class TranspileError(Exception):
     pass
+
+
+def erro_transpilacao(line, msg: str) -> TranspileError:
+    onde = f" Linha {line}:" if line is not None else ""
+    return TranspileError(f"💥 [Erro de Transpilação]{onde} {msg}")
 
 
 CPP_TYPES = {"GALLEON": "int", "SICKLE": "float", "PARCHMENT": "String", "VERITAS": "bool"}
@@ -127,7 +208,21 @@ RESERVED = {
     "sqrt", "map", "constrain", "byte", "word", "boolean", "random", "millis", "micros",
     "delay", "delayMicroseconds", "pinMode", "digitalWrite", "digitalRead", "analogRead",
     "analogWrite", "tone", "noTone", "F", "fmod", "NULL",
+    # funções do core que um INCANTATIO homônimo redefiniria
+    "init", "initVariant", "yield", "pulseIn", "pulseInLong", "shiftIn", "shiftOut",
+    "attachInterrupt", "detachInterrupt", "randomSeed", "makeWord", "analogReference",
+    "serialEvent", "isAlpha", "isDigit", "isSpace", "isUpperCase", "isLowerCase",
 } | {f"A{i}" for i in range(8)} | set(ARDUINO_BUILTINS)
+
+
+def _carregar_macros_arduino() -> frozenset:
+    """Macros do pré-processador do UNO (B1, DEC, PORTB, ...): ver dados/macros_arduino_uno.txt."""
+    caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dados", "macros_arduino_uno.txt")
+    with open(caminho, encoding="utf-8") as f:
+        return frozenset(l.strip() for l in f if l.strip() and not l.startswith("#"))
+
+
+RESERVED |= _carregar_macros_arduino()
 
 
 def walk(node):
@@ -220,6 +315,9 @@ class TranspilerArduino:
         if isinstance(e, IdentifierNode):
             if e.name in ARDUINO_CONSTANTS:
                 return "GALLEON"
+            simbolo = getattr(e, "simbolo", None)  # anotado pelo SemanticAnalyzerArduino
+            if simbolo is not None:
+                return self.tipo_do_simbolo(simbolo)
             return env.get(e.name)
         if isinstance(e, BinaryOpNode):
             if e.op in ("==", "!=", "<", ">", "<=", ">=", "&&", "||"):
@@ -238,6 +336,14 @@ class TranspilerArduino:
             return BUILTIN_RETURNS.get(e.name)
         return None
 
+    def tipo_do_simbolo(self, simbolo: Symbol) -> Optional[str]:
+        if simbolo.tipo:
+            return simbolo.tipo
+        func = getattr(simbolo, "param_de", None)  # parâmetro: tipo vem da inferência
+        if func in self.funcs:
+            return self.funcs[func].ptypes.get(simbolo.name)
+        return None
+
     def expr(self, e) -> str:
         if isinstance(e, LiteralNode):
             if e.type_name == "VERITAS":
@@ -246,10 +352,10 @@ class TranspilerArduino:
                 return self.c_string(e.value)
             if e.type_name == "SICKLE":
                 return f"{e.value!r}f"
-            if e.value > 32767:
-                self.warnings.append(
-                    f"Linha {e.line}: literal GALLEON {e.value} excede 'int' de 16 bits do Arduino UNO."
-                )
+            if e.value > GALLEON_MAX:
+                raise erro_transpilacao(
+                    e.line, f"literal GALLEON {e.value} não cabe no 'int' de 16 bits do Arduino UNO "
+                            f"({GALLEON_MIN} a {GALLEON_MAX}). Use SICKLE para valores maiores.")
             return str(e.value)
         if isinstance(e, IdentifierNode):
             return self.ident(e.name)
@@ -259,10 +365,14 @@ class TranspilerArduino:
                 return f"fmod({l}, {r})"
             return f"({l} {e.op} {r})"
         if isinstance(e, UnaryOpNode):
-            return f"({e.op}{self.expr(e.operand)})"
+            op = e.operand
+            if (e.op == "-" and isinstance(op, LiteralNode) and op.type_name == "GALLEON"
+                    and op.value == -GALLEON_MIN):
+                return f"(-{op.value})"  # -32768 é o menor int válido
+            return f"({e.op}{self.expr(op)})"
         if isinstance(e, CallNode):
             return self.call(e)
-        raise TranspileError(f"Expressão não suportada: {type(e).__name__}")
+        raise erro_transpilacao(getattr(e, "line", None), f"Expressão não suportada: {type(e).__name__}")
 
     @staticmethod
     def strip_outer(texto: str) -> str:
@@ -322,6 +432,44 @@ class TranspilerArduino:
             if not changed:
                 break
 
+    def _verificar_tipos(self, main_env: Dict[str, str]):
+        """Checagem de tipos que só é possível depois de inferir parâmetros e retornos."""
+        for info in self.funcs.values():
+            env = self._func_env(info)
+            retornos = [(self.infer(n.expr, env), n.line) for n in walk(info.node.body)
+                        if isinstance(n, ExpelliarmusNode)]
+            retornos = [(t, l) for t, l in retornos if t]
+            for t, linha in retornos[1:]:
+                if t != retornos[0][0]:
+                    raise erro_transpilacao(
+                        linha, f"INCANTATIO '{info.node.name}' devolve tipos diferentes: "
+                               f"{retornos[0][0]} (linha {retornos[0][1]}) e {t}.")
+
+        blocos = [(self.main_stmts, main_env)]
+        blocos += [(info.node.body, self._func_env(info)) for info in self.funcs.values()]
+        for stmts, env in blocos:
+            for n in walk(stmts):
+                if isinstance(n, CallNode) and n.name in self.funcs:
+                    info = self.funcs[n.name]
+                    for param, arg in zip(info.node.params, n.args):
+                        esperado, t = info.ptypes[param], self.infer(arg, env)
+                        if t and esperado and t != esperado:
+                            raise erro_transpilacao(
+                                n.line, f"parâmetro '{param}' do INCANTATIO '{n.name}' é {esperado} "
+                                        f"(inferido da primeira chamada), mas recebeu {t}.")
+                elif isinstance(n, (VarDeclNode, AssignNode)):
+                    valor = n.value_expr if isinstance(n, VarDeclNode) else n.expr
+                    simbolo = getattr(n, "simbolo", None)
+                    esperado = self.tipo_do_simbolo(simbolo) if simbolo else getattr(n, "data_type", None)
+                    t = self.infer(valor, env)
+                    if t and esperado and t != esperado:
+                        raise erro_transpilacao(n.line, f"'{n.name}' é {esperado} mas recebeu {t}.")
+                elif isinstance(n, (SortilegioNode, ViraTempoNode)):
+                    t = self.infer(n.condition, env)
+                    if t and t != "VERITAS":
+                        nome = "SORTILEGIO" if isinstance(n, SortilegioNode) else "VIRATEMPO"
+                        raise erro_transpilacao(n.line, f"condição do {nome} exige VERITAS, encontrado {t}.")
+
     # ------------------------------------------------------------------
     # Statements
     # ------------------------------------------------------------------
@@ -355,10 +503,8 @@ class TranspilerArduino:
             out.append(f"{p}}}")
             return out
         if isinstance(n, FuncDeclNode):
-            raise TranspileError(
-                f"Linha {n.line}: INCANTATIO '{n.name}' só pode ser declarado no nível do HOGWARTS."
-            )
-        raise TranspileError(f"Comando não suportado: {type(n).__name__}")
+            raise erro_transpilacao(n.line, f"INCANTATIO '{n.name}' só pode ser declarado no nível do HOGWARTS.")
+        raise erro_transpilacao(getattr(n, "line", None), f"Comando não suportado: {type(n).__name__}")
 
     def block(self, stmts, ind: int) -> List[str]:
         out = []
@@ -379,9 +525,7 @@ class TranspilerArduino:
         loop_body: Optional[list] = None
         for s in prog.body:
             if loop_body is not None:
-                raise TranspileError(
-                    f"Linha {s.line}: código inalcançável após o VIRATEMPO (ALWAYS) principal."
-                )
+                raise erro_transpilacao(s.line, "código inalcançável após o VIRATEMPO (ALWAYS) principal.")
             if isinstance(s, FuncDeclNode):
                 funcs.append(s)
             elif is_infinite_loop(s):
@@ -395,10 +539,13 @@ class TranspilerArduino:
             self.global_env[s.name] = s.data_type
         for f in funcs:
             if f.name in self.funcs:
-                raise TranspileError(f"INCANTATIO '{f.name}' declarado duas vezes.")
+                raise erro_transpilacao(f.line, f"INCANTATIO '{f.name}' declarado duas vezes.")
             self.funcs[f.name] = _FuncInfo(f)
         self.main_stmts = pre_loop + (loop_body or [])
         self._infer_signatures()
+        main_env = dict(self.global_env)
+        main_env.update(collect_locals(self.main_stmts))
+        self._verificar_tipos(main_env)
 
         usa_serial = any(isinstance(n, LumosNode) for n in walk(prog.body))
 
@@ -450,8 +597,6 @@ class TranspilerArduino:
             lines.append("")
 
         # 4) setup()
-        main_env = dict(self.global_env)
-        main_env.update(collect_locals(self.main_stmts))
         self.cur_env = main_env
         lines.append("void setup() {")
         if usa_serial:
@@ -482,10 +627,11 @@ def compilar(source: str):
     """Código PotterLang -> (texto do .ino, lista de avisos)."""
     tokens = LexerPotter(source).tokenize()
     ast = ParserPotterArduino(tokens).parse()
-    SemanticAnalyzerArduino().analyze(ast)
+    semantico = SemanticAnalyzerArduino()
+    semantico.analyze(ast)
     t = TranspilerArduino(ast)
     ino = t.generate()
-    return ast.name, ino, t.warnings
+    return ast.name, ino, semantico.avisos + t.warnings
 
 
 def caminho_sketch(arquivo_potter: str, nome: str) -> str:
