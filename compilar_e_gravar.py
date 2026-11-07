@@ -21,7 +21,7 @@ import subprocess
 import sys
 from typing import Callable, List, Optional
 
-from potter_arduino import TranspileError, caminho_sketch, compilar, salvar_ino
+from potter_arduino import TranspileError, caminho_sketch, compilar, configurar_saida_utf8, salvar_ino
 from potter_lang import SemanticError
 
 FQBN_PADRAO = "arduino:avr:uno"
@@ -114,6 +114,7 @@ def listar_portas(log: Log = print) -> int:
 
 
 def main(argv=None) -> int:
+    configurar_saida_utf8()
     ap = argparse.ArgumentParser(description="PotterLang -> .ino -> arduino-cli compile -> upload")
     ap.add_argument("arquivo", nargs="?", help="arquivo .potter")
     ap.add_argument("-p", "--porta", help="porta serial da placa, ex.: COM3")

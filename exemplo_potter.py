@@ -1,4 +1,10 @@
+import sys
+
 from potter_lang import LexerPotter, ParserPotter, SemanticAnalyzerPotter, SemanticError
+
+# Saída redirecionada no Windows usa cp1252 e quebraria nos emojis.
+if not sys.stdout.isatty():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 potter_code = """
 HOGWARTS Grifinoria {

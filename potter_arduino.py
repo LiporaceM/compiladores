@@ -48,6 +48,7 @@ from potter_lang import (
     UnaryOpNode,
     VarDeclNode,
     ViraTempoNode,
+    descrever_posicao,
 )
 
 # =====================================================================
@@ -100,7 +101,7 @@ class ParserPotterArduino(ParserPotter):
             while self.match(TokenType.COMMA):
                 args.append(self.expression())
         self.consume(TokenType.RPAREN, "Esperado ')' após argumentos.")
-        return CallNode(name_tok.value, args, line=cast_tok.line)
+        return self._pos(CallNode(name_tok.value, args), cast_tok)
 
 
 class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
@@ -121,13 +122,13 @@ class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
         for nome in ARDUINO_CONSTANTS:
             self.global_scope.declare(Symbol(nome, "GALLEON", "VOTO", 0))
 
-    def _checar_nome(self, nome: str, line: int):
+    def _checar_nome(self, nome: str, onde):
         if nome in ARDUINO_CONSTANTS:
-            self.error(line, f"'{nome}' é uma constante nativa do Arduino "
+            self.error(onde, f"'{nome}' é uma constante nativa do Arduino "
                              f"({ARDUINO_CONSTANTS[nome]}) e não pode ser redeclarada.")
 
     def visit_VarDeclNode(self, node: VarDeclNode):
-        self._checar_nome(node.name, node.line)
+        self._checar_nome(node.name, node)
         super().visit_VarDeclNode(node)
         node.simbolo = self.current_scope.symbols[node.name]
 
@@ -136,9 +137,9 @@ class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
         node.simbolo = self.current_scope.resolve(node.name)
 
     def visit_FuncDeclNode(self, node: FuncDeclNode):
-        self._checar_nome(node.name, node.line)
+        self._checar_nome(node.name, node)
         for p in node.params:
-            self._checar_nome(p, node.line)
+            self._checar_nome(p, node)
         self.funcoes[node.name] = node
         inicio = len(self.tabela_completa)
         super().visit_FuncDeclNode(node)
@@ -149,7 +150,7 @@ class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
             s.param_de = node.name
 
         if retorna_valor(node) and not sempre_retorna(node.body):
-            self.error(node.line,
+            self.error(node,
                        f"INCANTATIO '{node.name}' conjura EXPELLIARMUS, mas nem todo caminho "
                        f"termina em EXPELLIARMUS (adicione um EXPELLIARMUS no fim ou um SENAO).")
 
@@ -157,7 +158,7 @@ class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
                  if isinstance(n, IdentifierNode) and getattr(n, "simbolo", None) is not None}
         for s in params:
             if id(s) not in lidos:
-                self.avisos.append(f"Linha {node.line}: parâmetro '{s.name}' do INCANTATIO "
+                self.avisos.append(f"{descrever_posicao(node)}: parâmetro '{s.name}' do INCANTATIO "
                                    f"'{node.name}' nunca é usado.")
 
     def infer_type(self, expr):
@@ -166,12 +167,12 @@ class SemanticAnalyzerArduino(SemanticAnalyzerPotter):
             simbolo = self.current_scope.resolve(expr.name)
             if simbolo is None:  # builtin Arduino
                 if expr.name not in BUILTIN_RETURNS:
-                    self.error(expr.line, f"Comando Arduino '{expr.name}' não devolve valor "
+                    self.error(expr, f"Comando Arduino '{expr.name}' não devolve valor "
                                           f"e não pode ser usado em uma expressão.")
                 return BUILTIN_RETURNS[expr.name]
             func = self.funcoes.get(expr.name)
             if func is not None and not retorna_valor(func):
-                self.error(expr.line, f"INCANTATIO '{expr.name}' não conjura EXPELLIARMUS "
+                self.error(expr, f"INCANTATIO '{expr.name}' não conjura EXPELLIARMUS "
                                       f"(não devolve valor) e não pode ser usado em uma expressão.")
             return None  # tipo de retorno definido pelo transpilador (inferência)
         tipo = super().infer_type(expr)
@@ -188,9 +189,10 @@ class TranspileError(Exception):
     pass
 
 
-def erro_transpilacao(line, msg: str) -> TranspileError:
-    onde = f" Linha {line}:" if line is not None else ""
-    return TranspileError(f"💥 [Erro de Transpilação]{onde} {msg}")
+def erro_transpilacao(onde, msg: str) -> TranspileError:
+    """`onde` é o nó da AST com o problema (ou None)."""
+    pos = f" {descrever_posicao(onde)}:" if onde is not None else ""
+    return TranspileError(f"💥 [Erro de Transpilação]{pos} {msg}")
 
 
 CPP_TYPES = {"GALLEON": "int", "SICKLE": "float", "PARCHMENT": "String", "VERITAS": "bool"}
@@ -354,7 +356,7 @@ class TranspilerArduino:
                 return f"{e.value!r}f"
             if e.value > GALLEON_MAX:
                 raise erro_transpilacao(
-                    e.line, f"literal GALLEON {e.value} não cabe no 'int' de 16 bits do Arduino UNO "
+                    e, f"literal GALLEON {e.value} não cabe no 'int' de 16 bits do Arduino UNO "
                             f"({GALLEON_MIN} a {GALLEON_MAX}). Use SICKLE para valores maiores.")
             return str(e.value)
         if isinstance(e, IdentifierNode):
@@ -372,7 +374,7 @@ class TranspilerArduino:
             return f"({e.op}{self.expr(op)})"
         if isinstance(e, CallNode):
             return self.call(e)
-        raise erro_transpilacao(getattr(e, "line", None), f"Expressão não suportada: {type(e).__name__}")
+        raise erro_transpilacao(e, f"Expressão não suportada: {type(e).__name__}")
 
     @staticmethod
     def strip_outer(texto: str) -> str:
@@ -436,14 +438,14 @@ class TranspilerArduino:
         """Checagem de tipos que só é possível depois de inferir parâmetros e retornos."""
         for info in self.funcs.values():
             env = self._func_env(info)
-            retornos = [(self.infer(n.expr, env), n.line) for n in walk(info.node.body)
+            retornos = [(self.infer(n.expr, env), n) for n in walk(info.node.body)
                         if isinstance(n, ExpelliarmusNode)]
             retornos = [(t, l) for t, l in retornos if t]
-            for t, linha in retornos[1:]:
+            for t, no in retornos[1:]:
                 if t != retornos[0][0]:
                     raise erro_transpilacao(
-                        linha, f"INCANTATIO '{info.node.name}' devolve tipos diferentes: "
-                               f"{retornos[0][0]} (linha {retornos[0][1]}) e {t}.")
+                        no, f"INCANTATIO '{info.node.name}' devolve tipos diferentes: "
+                               f"{retornos[0][0]} (linha {retornos[0][1].line}) e {t}.")
 
         blocos = [(self.main_stmts, main_env)]
         blocos += [(info.node.body, self._func_env(info)) for info in self.funcs.values()]
@@ -455,7 +457,7 @@ class TranspilerArduino:
                         esperado, t = info.ptypes[param], self.infer(arg, env)
                         if t and esperado and t != esperado:
                             raise erro_transpilacao(
-                                n.line, f"parâmetro '{param}' do INCANTATIO '{n.name}' é {esperado} "
+                                n, f"parâmetro '{param}' do INCANTATIO '{n.name}' é {esperado} "
                                         f"(inferido da primeira chamada), mas recebeu {t}.")
                 elif isinstance(n, (VarDeclNode, AssignNode)):
                     valor = n.value_expr if isinstance(n, VarDeclNode) else n.expr
@@ -463,12 +465,12 @@ class TranspilerArduino:
                     esperado = self.tipo_do_simbolo(simbolo) if simbolo else getattr(n, "data_type", None)
                     t = self.infer(valor, env)
                     if t and esperado and t != esperado:
-                        raise erro_transpilacao(n.line, f"'{n.name}' é {esperado} mas recebeu {t}.")
+                        raise erro_transpilacao(n, f"'{n.name}' é {esperado} mas recebeu {t}.")
                 elif isinstance(n, (SortilegioNode, ViraTempoNode)):
                     t = self.infer(n.condition, env)
                     if t and t != "VERITAS":
                         nome = "SORTILEGIO" if isinstance(n, SortilegioNode) else "VIRATEMPO"
-                        raise erro_transpilacao(n.line, f"condição do {nome} exige VERITAS, encontrado {t}.")
+                        raise erro_transpilacao(n, f"condição do {nome} exige VERITAS, encontrado {t}.")
 
     # ------------------------------------------------------------------
     # Statements
@@ -503,8 +505,8 @@ class TranspilerArduino:
             out.append(f"{p}}}")
             return out
         if isinstance(n, FuncDeclNode):
-            raise erro_transpilacao(n.line, f"INCANTATIO '{n.name}' só pode ser declarado no nível do HOGWARTS.")
-        raise erro_transpilacao(getattr(n, "line", None), f"Comando não suportado: {type(n).__name__}")
+            raise erro_transpilacao(n, f"INCANTATIO '{n.name}' só pode ser declarado no nível do HOGWARTS.")
+        raise erro_transpilacao(n, f"Comando não suportado: {type(n).__name__}")
 
     def block(self, stmts, ind: int) -> List[str]:
         out = []
@@ -525,7 +527,7 @@ class TranspilerArduino:
         loop_body: Optional[list] = None
         for s in prog.body:
             if loop_body is not None:
-                raise erro_transpilacao(s.line, "código inalcançável após o VIRATEMPO (ALWAYS) principal.")
+                raise erro_transpilacao(s, "código inalcançável após o VIRATEMPO (ALWAYS) principal.")
             if isinstance(s, FuncDeclNode):
                 funcs.append(s)
             elif is_infinite_loop(s):
@@ -539,7 +541,7 @@ class TranspilerArduino:
             self.global_env[s.name] = s.data_type
         for f in funcs:
             if f.name in self.funcs:
-                raise erro_transpilacao(f.line, f"INCANTATIO '{f.name}' declarado duas vezes.")
+                raise erro_transpilacao(f, f"INCANTATIO '{f.name}' declarado duas vezes.")
             self.funcs[f.name] = _FuncInfo(f)
         self.main_stmts = pre_loop + (loop_body or [])
         self._infer_signatures()
@@ -646,7 +648,15 @@ def salvar_ino(destino: str, ino: str) -> None:
         f.write(ino)
 
 
+def configurar_saida_utf8() -> None:
+    """No Windows, saída redirecionada (pipe/arquivo) usa cp1252 e quebra nos emojis das mensagens."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and not stream.isatty():
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main(argv=None) -> int:
+    configurar_saida_utf8()
     ap = argparse.ArgumentParser(
         prog="potterc",
         description="Compilador PotterLang -> sketch Arduino (.ino)",

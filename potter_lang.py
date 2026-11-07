@@ -96,8 +96,10 @@ class LexerPotter:
             "NEVER": TokenType.NEVER,
         }
 
-    def error(self, msg: str):
-        raise SyntaxError(f"💥 [Erro Léxico] Linha {self.line}, Coluna {self.col}: {msg}")
+    def error(self, msg: str, line: Optional[int] = None, col: Optional[int] = None):
+        line = self.line if line is None else line
+        col = self.col if col is None else col
+        raise SyntaxError(f"💥 [Erro Léxico] Linha {line}, Coluna {col}: {msg}")
 
     def peek(self, offset: int = 1) -> str:
         if self.pos + offset < len(self.source):
@@ -225,20 +227,22 @@ class LexerPotter:
 
             # Strings
             if char == '"':
+                # O token (e um eventual erro) aponta para a aspa de abertura.
+                start_line, start_col = self.line, self.col
                 self.advance()
-                start_col = self.col
                 val = ""
                 while self.pos < len(self.source) and self.source[self.pos] != '"':
                     if self.source[self.pos] == '\n':
                         self.line += 1
-                        self.col = 1
+                        self.col = 0  # o += 1 abaixo leva à coluna 1 da nova linha
                     val += self.source[self.pos]
                     self.pos += 1
                     self.col += 1
                 if self.pos >= len(self.source):
-                    self.error("Encantamento de texto incompleto (faltou fechar aspas).")
+                    self.error("Encantamento de texto incompleto (faltou fechar aspas).",
+                               start_line, start_col)
                 self.advance()
-                self.tokens.append(Token(TokenType.STRING_LITERAL, val, self.line, start_col))
+                self.tokens.append(Token(TokenType.STRING_LITERAL, val, start_line, start_col))
                 continue
 
             # Números (Galleons e Sickles)
@@ -285,6 +289,7 @@ class LexerPotter:
 
 class ASTNode:
     line: int = None
+    col: int = None
 
     def print_tree(self, indent: str = "", is_last: bool = True) -> str:
         raise NotImplementedError
@@ -507,6 +512,12 @@ class ParserPotter:
         tok = self.peek()
         raise SyntaxError(f"💥 [Erro Sintático] Linha {tok.line}, Coluna {tok.column} próximo a '{tok.value}': {message}")
 
+    @staticmethod
+    def _pos(node: ASTNode, tok: Token) -> ASTNode:
+        """Registra no nó a linha e a coluna do token que o originou."""
+        node.line, node.col = tok.line, tok.column
+        return node
+
     def peek(self) -> Token:
         return self.tokens[self.current]
 
@@ -548,7 +559,7 @@ class ParserPotter:
 
         self.consume(TokenType.RBRACE, "Esperado '}' para fechar os portões de Hogwarts.")
         self.consume(TokenType.EOF, "Esperado fim do programa.")
-        return ProgramNode(name_tok.value, body, line=hogwarts_tok.line)
+        return self._pos(ProgramNode(name_tok.value, body), hogwarts_tok)
 
     def statement(self) -> ASTNode:
         if self.match(TokenType.VARINHA, TokenType.VOTO):
@@ -584,14 +595,14 @@ class ParserPotter:
         expr = self.expression()
         self.consume(TokenType.SEMICOLON, "Declarações mágicas devem terminar com ';'.")
 
-        return VarDeclNode(is_const, data_type, name_tok.value, expr, line=decl_tok.line)
+        return self._pos(VarDeclNode(is_const, data_type, name_tok.value, expr), decl_tok)
 
     def assignment_statement(self) -> AssignNode:
         name_tok = self.consume(TokenType.IDENTIFIER, "Esperado nome do identificador.")
         self.consume(TokenType.WAND_ASSIGN, "Esperado aceno de varinha '~>'.")
         expr = self.expression()
         self.consume(TokenType.SEMICOLON, "Atribuição deve terminar com ';'.")
-        return AssignNode(name_tok.value, expr, line=name_tok.line)
+        return self._pos(AssignNode(name_tok.value, expr), name_tok)
 
     def lumos_statement(self) -> LumosNode:
         lumos_tok = self.previous()
@@ -599,7 +610,7 @@ class ParserPotter:
         expr = self.expression()
         self.consume(TokenType.RPAREN, "Esperado ')' após expressão do LUMOS.")
         self.consume(TokenType.SEMICOLON, "LUMOS precisa terminar com ';'.")
-        return LumosNode(expr, line=lumos_tok.line)
+        return self._pos(LumosNode(expr), lumos_tok)
 
     def sortilegio_statement(self) -> SortilegioNode:
         sort_tok = self.previous()
@@ -621,7 +632,7 @@ class ParserPotter:
                 else_branch.append(self.statement())
             self.consume(TokenType.RBRACE, "Esperado '}' para fechar SENAO.")
 
-        return SortilegioNode(cond, then_branch, else_branch, line=sort_tok.line)
+        return self._pos(SortilegioNode(cond, then_branch, else_branch), sort_tok)
 
     def viratempo_statement(self) -> ViraTempoNode:
         vira_tok = self.previous()
@@ -635,7 +646,7 @@ class ParserPotter:
             body.append(self.statement())
         self.consume(TokenType.RBRACE, "Esperado '}' para fechar VIRATEMPO.")
 
-        return ViraTempoNode(cond, body, line=vira_tok.line)
+        return self._pos(ViraTempoNode(cond, body), vira_tok)
 
     def incantatio_statement(self) -> FuncDeclNode:
         inc_tok = self.previous()
@@ -654,7 +665,7 @@ class ParserPotter:
             body.append(self.statement())
         self.consume(TokenType.RBRACE, "Esperado '}' para fechar o feitiço.")
 
-        return FuncDeclNode(name_tok.value, params, body, line=inc_tok.line)
+        return self._pos(FuncDeclNode(name_tok.value, params, body), inc_tok)
 
     def cast_statement(self) -> CallNode:
         cast_tok = self.previous()
@@ -667,13 +678,13 @@ class ParserPotter:
                 args.append(self.expression())
         self.consume(TokenType.RPAREN, "Esperado ')' após argumentos.")
         self.consume(TokenType.SEMICOLON, "Comando CAST precisa terminar com ';'.")
-        return CallNode(name_tok.value, args, line=cast_tok.line)
+        return self._pos(CallNode(name_tok.value, args), cast_tok)
 
     def expelliarmus_statement(self) -> ExpelliarmusNode:
         exp_tok = self.previous()
         expr = self.expression()
         self.consume(TokenType.SEMICOLON, "EXPELLIARMUS precisa terminar com ';'.")
-        return ExpelliarmusNode(expr, line=exp_tok.line)
+        return self._pos(ExpelliarmusNode(expr), exp_tok)
 
     def expression(self) -> ASTNode:
         # A ordem dos métodos representa a precedência dos operadores.
@@ -683,14 +694,14 @@ class ParserPotter:
         expr = self.logical_and()
         while self.match(TokenType.OR):
             op_tok = self.previous()
-            expr = BinaryOpNode(expr, op_tok.value, self.logical_and(), line=op_tok.line)
+            expr = self._pos(BinaryOpNode(expr, op_tok.value, self.logical_and()), op_tok)
         return expr
 
     def logical_and(self) -> ASTNode:
         expr = self.equality()
         while self.match(TokenType.AND):
             op_tok = self.previous()
-            expr = BinaryOpNode(expr, op_tok.value, self.equality(), line=op_tok.line)
+            expr = self._pos(BinaryOpNode(expr, op_tok.value, self.equality()), op_tok)
         return expr
 
     def equality(self) -> ASTNode:
@@ -698,7 +709,7 @@ class ParserPotter:
         while self.match(TokenType.EQ, TokenType.NEQ):
             op_tok = self.previous()
             right = self.relational()
-            expr = BinaryOpNode(expr, op_tok.value, right, line=op_tok.line)
+            expr = self._pos(BinaryOpNode(expr, op_tok.value, right), op_tok)
         return expr
 
     def relational(self) -> ASTNode:
@@ -706,7 +717,7 @@ class ParserPotter:
         while self.match(TokenType.LT, TokenType.GT, TokenType.LTE, TokenType.GTE):
             op_tok = self.previous()
             right = self.additive()
-            expr = BinaryOpNode(expr, op_tok.value, right, line=op_tok.line)
+            expr = self._pos(BinaryOpNode(expr, op_tok.value, right), op_tok)
         return expr
 
     def additive(self) -> ASTNode:
@@ -714,7 +725,7 @@ class ParserPotter:
         while self.match(TokenType.PLUS, TokenType.MINUS):
             op_tok = self.previous()
             right = self.multiplicative()
-            expr = BinaryOpNode(expr, op_tok.value, right, line=op_tok.line)
+            expr = self._pos(BinaryOpNode(expr, op_tok.value, right), op_tok)
         return expr
 
     def multiplicative(self) -> ASTNode:
@@ -722,31 +733,31 @@ class ParserPotter:
         while self.match(TokenType.STAR_MULT, TokenType.SLASH, TokenType.MOD):
             op_tok = self.previous()
             right = self.unary()
-            expr = BinaryOpNode(expr, op_tok.value, right, line=op_tok.line)
+            expr = self._pos(BinaryOpNode(expr, op_tok.value, right), op_tok)
         return expr
 
     def unary(self) -> ASTNode:
         if self.match(TokenType.NOT, TokenType.MINUS, TokenType.PLUS):
             op_tok = self.previous()
-            return UnaryOpNode(op_tok.value, self.unary(), line=op_tok.line)
+            return self._pos(UnaryOpNode(op_tok.value, self.unary()), op_tok)
         return self.primary()
 
     def primary(self) -> ASTNode:
         if self.match(TokenType.INT_LITERAL):
             tok = self.previous()
-            return LiteralNode(tok.value, "GALLEON", line=tok.line)
+            return self._pos(LiteralNode(tok.value, "GALLEON"), tok)
         elif self.match(TokenType.FLOAT_LITERAL):
             tok = self.previous()
-            return LiteralNode(tok.value, "SICKLE", line=tok.line)
+            return self._pos(LiteralNode(tok.value, "SICKLE"), tok)
         elif self.match(TokenType.STRING_LITERAL):
             tok = self.previous()
-            return LiteralNode(tok.value, "PARCHMENT", line=tok.line)
+            return self._pos(LiteralNode(tok.value, "PARCHMENT"), tok)
         elif self.match(TokenType.ALWAYS, TokenType.NEVER):
             tok = self.previous()
-            return LiteralNode(tok.type == TokenType.ALWAYS, "VERITAS", line=tok.line)
+            return self._pos(LiteralNode(tok.type == TokenType.ALWAYS, "VERITAS"), tok)
         elif self.match(TokenType.IDENTIFIER):
             tok = self.previous()
-            return IdentifierNode(tok.value, line=tok.line)
+            return self._pos(IdentifierNode(tok.value), tok)
         elif self.match(TokenType.LPAREN):
             expr = self.expression()
             self.consume(TokenType.RPAREN, "Esperado ')' após expressão.")
@@ -777,13 +788,23 @@ class SemanticError(Exception):
     pass
 
 
+def descrever_posicao(onde) -> str:
+    """'Linha L, Coluna C' a partir de um nó da AST (ou 'Linha L' a partir de um int)."""
+    if isinstance(onde, ASTNode):
+        line, col = onde.line, onde.col
+    else:
+        line, col = onde, None
+    return f"Linha {line}, Coluna {col}" if col is not None else f"Linha {line}"
+
+
 class Symbol:
     def __init__(self, name: str, tipo: Optional[str], categoria: str,
-                 line: int, params: Optional[List[str]] = None):
+                 line: int, params: Optional[List[str]] = None, col: Optional[int] = None):
         self.name = name
         self.tipo = tipo            # GALLEON / SICKLE / PARCHMENT / VERITAS / None
         self.categoria = categoria  # "VOTO" | "VARINHA" | "INCANTATIO"
         self.line = line
+        self.col = col
         self.params = params
 
     def __repr__(self):
@@ -800,8 +821,9 @@ class Scope:
     def declare(self, symbol: Symbol):
         if symbol.name in self.symbols:
             anterior = self.symbols[symbol.name]
+            pos = f"Linha {symbol.line}" + (f", Coluna {symbol.col}" if symbol.col is not None else "")
             raise SemanticError(
-                f"💥 [Erro Semântico] Linha {symbol.line}: "
+                f"💥 [Erro Semântico] {pos}: "
                 f"'{symbol.name}' já foi declarado na linha {anterior.line} "
                 f"(redeclaração proibida no mesmo escopo)."
             )
@@ -822,8 +844,9 @@ class SemanticAnalyzerPotter:
         self.dentro_de_incantatio = False
         self.tabela_completa: List[Symbol] = []
 
-    def error(self, line: int, message: str):
-        raise SemanticError(f"💥 [Erro Semântico] Linha {line}: {message}")
+    def error(self, onde, message: str):
+        """`onde` é o nó da AST com o problema (ou só o número da linha)."""
+        raise SemanticError(f"💥 [Erro Semântico] {descrever_posicao(onde)}: {message}")
 
     def analyze(self, program: ProgramNode) -> Scope:
         for stmt in program.body:
@@ -841,27 +864,27 @@ class SemanticAnalyzerPotter:
 
         if tipo_valor is not None and tipo_valor != node.data_type:
             self.error(
-                node.line,
+                node,
                 f"'{node.name}' foi declarado como {node.data_type} mas recebeu tipo {tipo_valor}."
             )
 
         categoria = "VOTO" if node.is_const else "VARINHA"
-        simbolo = Symbol(node.name, node.data_type, categoria, node.line)
+        simbolo = Symbol(node.name, node.data_type, categoria, node.line, col=node.col)
         self.current_scope.declare(simbolo)
         self.tabela_completa.append(simbolo)
 
     def visit_AssignNode(self, node: AssignNode):
         simbolo = self.current_scope.resolve(node.name)
         if simbolo is None:
-            self.error(node.line, f"Identificador '{node.name}' usado antes de ser declarado.")
+            self.error(node, f"Identificador '{node.name}' usado antes de ser declarado.")
         if simbolo.categoria == "VOTO":
-            self.error(node.line, f"'{node.name}' é um VOTO Inquebrável (constante na linha {simbolo.line}) e não pode ser alterado.")
+            self.error(node, f"'{node.name}' é um VOTO Inquebrável (constante na linha {simbolo.line}) e não pode ser alterado.")
         if simbolo.categoria == "INCANTATIO":
-            self.error(node.line, f"'{node.name}' é um feitiço e não aceita atribuição.")
+            self.error(node, f"'{node.name}' é um feitiço e não aceita atribuição.")
 
         tipo_valor = self.infer_type(node.expr)
         if tipo_valor is not None and simbolo.tipo is not None and tipo_valor != simbolo.tipo:
-            self.error(node.line, f"'{node.name}' é do tipo {simbolo.tipo} mas recebeu um {tipo_valor}.")
+            self.error(node, f"'{node.name}' é do tipo {simbolo.tipo} mas recebeu um {tipo_valor}.")
 
     def visit_LumosNode(self, node: LumosNode):
         self.infer_type(node.expr)
@@ -869,7 +892,7 @@ class SemanticAnalyzerPotter:
     def visit_SortilegioNode(self, node: SortilegioNode):
         tipo_cond = self.infer_type(node.condition)
         if tipo_cond is not None and tipo_cond != "VERITAS":
-            self.error(node.line, f"Condição do SORTILEGIO exige tipo VERITAS (booleano), encontrado {tipo_cond}.")
+            self.error(node, f"Condição do SORTILEGIO exige tipo VERITAS (booleano), encontrado {tipo_cond}.")
         self.visit_bloco(node.then_branch, "SORTILEGIO")
         if node.else_branch is not None:
             self.visit_bloco(node.else_branch, "SENAO")
@@ -877,11 +900,11 @@ class SemanticAnalyzerPotter:
     def visit_ViraTempoNode(self, node: ViraTempoNode):
         tipo_cond = self.infer_type(node.condition)
         if tipo_cond is not None and tipo_cond != "VERITAS":
-            self.error(node.line, f"Condição do VIRATEMPO exige tipo VERITAS (booleano), encontrado {tipo_cond}.")
+            self.error(node, f"Condição do VIRATEMPO exige tipo VERITAS (booleano), encontrado {tipo_cond}.")
         self.visit_bloco(node.body, "VIRATEMPO")
 
     def visit_FuncDeclNode(self, node: FuncDeclNode):
-        simbolo = Symbol(node.name, None, "INCANTATIO", node.line, params=node.params)
+        simbolo = Symbol(node.name, None, "INCANTATIO", node.line, params=node.params, col=node.col)
         self.current_scope.declare(simbolo)
         self.tabela_completa.append(simbolo)
 
@@ -891,7 +914,7 @@ class SemanticAnalyzerPotter:
         self.dentro_de_incantatio = True
 
         for nome_param in node.params:
-            param_sym = Symbol(nome_param, None, "VARINHA", node.line)
+            param_sym = Symbol(nome_param, None, "VARINHA", node.line, col=node.col)
             self.current_scope.declare(param_sym)
             self.tabela_completa.append(param_sym)
 
@@ -907,22 +930,22 @@ class SemanticAnalyzerPotter:
             # Comandos nativos ficam reservados para a futura geração Arduino.
             esperados = ARDUINO_BUILTINS[node.name]
             if len(node.args) != esperados:
-                self.error(node.line, f"Comando Arduino '{node.name}' requer {esperados} parâmetro(s), recebidos {len(node.args)}.")
+                self.error(node, f"Comando Arduino '{node.name}' requer {esperados} parâmetro(s), recebidos {len(node.args)}.")
             for arg in node.args:
                 self.infer_type(arg)
             return
         if simbolo is None:
-            self.error(node.line, f"Tentativo de lançar '{node.name}', mas nenhum feitiço com esse nome foi ensinado.")
+            self.error(node, f"Tentativa de lançar '{node.name}', mas nenhum feitiço com esse nome foi ensinado.")
         if simbolo.categoria != "INCANTATIO":
-            self.error(node.line, f"'{node.name}' não é um feitiço (INCANTATIO).")
+            self.error(node, f"'{node.name}' não é um feitiço (INCANTATIO).")
         if len(node.args) != len(simbolo.params):
-            self.error(node.line, f"Feitiço '{node.name}' requer {len(simbolo.params)} parâmetro(s), recebidos {len(node.args)}.")
+            self.error(node, f"Feitiço '{node.name}' requer {len(simbolo.params)} parâmetro(s), recebidos {len(node.args)}.")
         for arg in node.args:
             self.infer_type(arg)
 
     def visit_ExpelliarmusNode(self, node: ExpelliarmusNode):
         if not self.dentro_de_incantatio:
-            self.error(node.line, "EXPELLIARMUS (retorno) só pode ser conjurado dentro de um INCANTATIO.")
+            self.error(node, "EXPELLIARMUS (retorno) só pode ser conjurado dentro de um INCANTATIO.")
         self.infer_type(node.expr)
 
     def visit_bloco(self, comandos: List[ASTNode], nome_bloco: str):
@@ -939,7 +962,7 @@ class SemanticAnalyzerPotter:
         if isinstance(expr, IdentifierNode):
             simbolo = self.current_scope.resolve(expr.name)
             if simbolo is None:
-                self.error(expr.line, f"Variável '{expr.name}' usada antes de ser declarada.")
+                self.error(expr, f"Variável '{expr.name}' usada antes de ser declarada.")
             return simbolo.tipo
 
         if isinstance(expr, BinaryOpNode):
@@ -953,29 +976,29 @@ class SemanticAnalyzerPotter:
                 if expr.op in {"<", ">", "<=", ">="} and (
                     tipo_esq not in TIPOS_NUMERICOS or tipo_dir not in TIPOS_NUMERICOS
                 ):
-                    self.error(expr.line, f"Operador '{expr.op}' exige tipos numéricos.")
+                    self.error(expr, f"Operador '{expr.op}' exige tipos numéricos.")
                 if tipo_esq != tipo_dir:
-                    self.error(expr.line, f"Comparação entre tipos incompatíveis ({tipo_esq} {expr.op} {tipo_dir}).")
+                    self.error(expr, f"Comparação entre tipos incompatíveis ({tipo_esq} {expr.op} {tipo_dir}).")
                 return "VERITAS"
 
             if expr.op in OPS_LOGICOS:
                 if tipo_esq != "VERITAS" or tipo_dir != "VERITAS":
-                    self.error(expr.line, f"Operador '{expr.op}' exige operandos VERITAS.")
+                    self.error(expr, f"Operador '{expr.op}' exige operandos VERITAS.")
                 return "VERITAS"
 
             if expr.op in OPS_ARITMETICOS:
                 if tipo_esq not in TIPOS_NUMERICOS or tipo_dir not in TIPOS_NUMERICOS:
-                    self.error(expr.line, f"Operador '{expr.op}' exige tipos numéricos (GALLEON/SICKLE), recebidos {tipo_esq} e {tipo_dir}.")
+                    self.error(expr, f"Operador '{expr.op}' exige tipos numéricos (GALLEON/SICKLE), recebidos {tipo_esq} e {tipo_dir}.")
                 return "SICKLE" if "SICKLE" in (tipo_esq, tipo_dir) else "GALLEON"
 
         if isinstance(expr, UnaryOpNode):
             tipo = self.infer_type(expr.operand)
             if expr.op == "!":
                 if tipo != "VERITAS":
-                    self.error(expr.line, "Operador '!' exige operando VERITAS.")
+                    self.error(expr, "Operador '!' exige operando VERITAS.")
                 return "VERITAS"
             if tipo not in TIPOS_NUMERICOS:
-                self.error(expr.line, f"Operador '{expr.op}' exige operando numérico.")
+                self.error(expr, f"Operador '{expr.op}' exige operando numérico.")
             return tipo
 
         return None

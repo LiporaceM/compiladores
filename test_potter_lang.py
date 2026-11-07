@@ -160,5 +160,45 @@ class SemanticTests(unittest.TestCase):
             analyze('HOGWARTS A { EXPELLIARMUS ALWAYS; }')
 
 
+class PositionInMessagesTests(unittest.TestCase):
+    """Toda mensagem de erro deve apontar linha e coluna quando possível."""
+
+    def assert_position(self, source, line, col, error=SemanticError):
+        with self.assertRaises(error) as ctx:
+            analyze(source)
+        self.assertIn(f'Linha {line}, Coluna {col}', str(ctx.exception))
+
+    def test_semantic_unknown_identifier_has_column(self):
+        self.assert_position('HOGWARTS A {\n    LUMOS(ghost);\n}', 2, 11)
+
+    def test_semantic_constant_assignment_has_column(self):
+        self.assert_position('HOGWARTS A {\n VOTO GALLEON x ~> 1;\n   x ~> 2;\n}', 3, 4)
+
+    def test_semantic_type_error_points_to_operator(self):
+        self.assert_position('HOGWARTS A { VARINHA VERITAS x ~> ALWAYS && 1; }', 1, 42)
+
+    def test_semantic_redeclaration_has_column(self):
+        self.assert_position('HOGWARTS A {\n VARINHA GALLEON x ~> 1;\n  VARINHA GALLEON x ~> 2;\n}', 3, 3)
+
+    def test_ast_nodes_carry_column(self):
+        program = ParserPotter(LexerPotter('HOGWARTS A {\n  VARINHA GALLEON x ~> 1 + 2;\n}').tokenize()).parse()
+        decl = program.body[0]
+        self.assertEqual((decl.line, decl.col), (2, 3))
+        self.assertEqual((decl.value_expr.line, decl.value_expr.col), (2, 26))
+
+    def test_multiline_string_token_starts_at_opening_quote(self):
+        tokens = LexerPotter('HOGWARTS A {\n LUMOS("a\nb"); }').tokenize()
+        string = next(t for t in tokens if t.type == TokenType.STRING_LITERAL)
+        self.assertEqual((string.line, string.column), (2, 8))
+        self.assertEqual(string.value, 'a\nb')
+        semicolon = tokens[-3]  # 'b");' -> ';' na linha 3, coluna 4
+        self.assertEqual((semicolon.line, semicolon.column), (3, 4))
+
+    def test_unterminated_string_points_to_opening_quote(self):
+        with self.assertRaises(SyntaxError) as ctx:
+            LexerPotter('LUMOS("abc\n def').tokenize()
+        self.assertIn('Linha 1, Coluna 7', str(ctx.exception))
+
+
 if __name__ == '__main__':
     unittest.main()

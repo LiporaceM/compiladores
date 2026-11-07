@@ -226,6 +226,20 @@ class EndurecimentoTests(unittest.TestCase):
     def test_funcao_com_nome_do_core_arduino_e_renomeada(self):
         self.assertIn("void init_pl()", ino("INCANTATIO init() { LUMOS(1); } CAST init();"))
 
+    # --- posição nas mensagens ---
+    def test_erros_do_back_end_tem_linha_e_coluna(self):
+        casos = (
+            ("VARINHA GALLEON x ~> 40000;", "40000"),                                   # transpilação
+            ("INCANTATIO f() { LUMOS(1); } VARINHA GALLEON x ~> CAST f();", "CAST f()"),  # semântico
+            ('INCANTATIO f(a) { LUMOS(a); } CAST f(1); CAST f("x");', 'CAST f("x")'),     # tipos pós-inferência
+        )
+        for corpo, trecho in casos:
+            with self.subTest(corpo=corpo):
+                src = f"HOGWARTS T {{ {corpo} }}"
+                with self.assertRaises((SemanticError, TranspileError)) as ctx:
+                    compilar(src)
+                self.assertIn(f"Linha 1, Coluna {src.index(trecho) + 1}", str(ctx.exception))
+
     # --- strings ---
     def test_caracteres_especiais_em_strings_sao_escapados(self):
         c = ino('LUMOS("tab\taspas\\\\fim");')
