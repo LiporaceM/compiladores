@@ -997,6 +997,9 @@ class SemanticAnalyzerPotter:
 
         if isinstance(expr, UnaryOpNode):
             tipo = self.infer_type(expr.operand)
+            if tipo is None:
+                # operando sem tipo conhecido (parâmetro de INCANTATIO): adia a checagem, como no binário
+                return "VERITAS" if expr.op == "!" else None
             if expr.op == "!":
                 if tipo != "VERITAS":
                     self.error(expr, "Operador '!' exige operando VERITAS.")

@@ -164,6 +164,18 @@ class SemanticTests(unittest.TestCase):
         with self.assertRaises(SemanticError):
             analyze('HOGWARTS A { EXPELLIARMUS ALWAYS; }')
 
+    def test_unary_on_untyped_parameter_is_deferred(self):
+        # parâmetros não têm tipo declarado: como no binário, a checagem é adiada
+        analyze('HOGWARTS A { INCANTATIO f(p) { SORTILEGIO (!p) { LUMOS(1); } } CAST f(ALWAYS); }')
+        analyze('HOGWARTS A { INCANTATIO g(n) { LUMOS(-n); LUMOS(+n); } CAST g(3); }')
+        analyze('HOGWARTS A { INCANTATIO h(p) { VARINHA VERITAS q ~> !p; } CAST h(NEVER); }')
+
+    def test_unary_on_known_wrong_type_is_still_rejected(self):
+        for source in ('HOGWARTS A { LUMOS(!3); }', 'HOGWARTS A { LUMOS(-ALWAYS); }'):
+            with self.subTest(source=source):
+                with self.assertRaises(SemanticError):
+                    analyze(source)
+
 
 class PositionInMessagesTests(unittest.TestCase):
     """Toda mensagem de erro deve apontar linha e coluna quando possível."""
