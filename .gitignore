@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Saidas de build do arduino-cli
+build/
+*.hex
+*.elf
+
+# Binarios do teste com mock (g++)
+*.exe
+*.o
+
+# Editores / SO
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

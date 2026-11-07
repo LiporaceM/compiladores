@@ -1,0 +1,246 @@
+-- ============================================================
+-- DUELO ARCANO  |  PotterLang -> Arduino UNO
+--
+-- Hardware (igual a protoboard do pitch):
+--   LEDs : vermelho = dano J1 (pino 2) | cinza = empate (3) | verde = dano J2 (4)
+--   J1   : Expelliarmus 5 | Protego 6 | Bombarda 7
+--   J2   : Expelliarmus 8 | Protego 9 | Bombarda 10
+--   Start: pino 11   (todos os botoes ligam o pino ao GND, com pull-up)
+--
+-- Regras:  Expelliarmus > Bombarda > Protego > Expelliarmus
+--          Se um duelista aperta mais de 300 ms antes do outro, vence por velocidade.
+--          Se so um aperta e passam 3 s, ele vence.
+-- ============================================================
+
+HOGWARTS DueloArcano {
+
+    -- ---------- Pinagem ----------
+    VOTO GALLEON LED_DANO_J1 ~> 2;
+    VOTO GALLEON LED_EMPATE ~> 3;
+    VOTO GALLEON LED_DANO_J2 ~> 4;
+
+    VOTO GALLEON BTN_J1_EXPELLIARMUS ~> 5;
+    VOTO GALLEON BTN_J1_PROTEGO ~> 6;
+    VOTO GALLEON BTN_J1_BOMBARDA ~> 7;
+
+    VOTO GALLEON BTN_J2_EXPELLIARMUS ~> 8;
+    VOTO GALLEON BTN_J2_PROTEGO ~> 9;
+    VOTO GALLEON BTN_J2_BOMBARDA ~> 10;
+
+    VOTO GALLEON BTN_INICIAR ~> 11;
+
+    -- ---------- Feiticos (EXPELLIARMUS e palavra reservada, por isso o prefixo F_) ----------
+    VOTO GALLEON NENHUMA ~> 0;
+    VOTO GALLEON F_EXPELLIARMUS ~> 1;
+    VOTO GALLEON F_PROTEGO ~> 2;
+    VOTO GALLEON F_BOMBARDA ~> 3;
+
+    -- ---------- Tempo: 1 tick = 20 ms ----------
+    VOTO GALLEON TICK_MS ~> 20;
+    VOTO GALLEON JANELA_TICKS ~> 15;     -- 300 ms
+    VOTO GALLEON LIMITE_TICKS ~> 150;    -- 3000 ms
+
+    -- ---------- Estado do duelo ----------
+    VARINHA GALLEON escolhaJ1 ~> 0;
+    VARINHA GALLEON escolhaJ2 ~> 0;
+    VARINHA GALLEON tickJ1 ~> 0;
+    VARINHA GALLEON tickJ2 ~> 0;
+    VARINHA GALLEON tickAtual ~> 0;
+    VARINHA VERITAS rodadaAtiva ~> NEVER;
+
+    -- ============================================================
+    -- FEITICOS (cada um so chama feiticos declarados antes dele)
+    -- ============================================================
+
+    INCANTATIO apagarLeds() {
+        CAST digitalWrite(LED_DANO_J1, BAIXO);
+        CAST digitalWrite(LED_DANO_J2, BAIXO);
+        CAST digitalWrite(LED_EMPATE, BAIXO);
+    }
+
+    INCANTATIO sinalVisual() {
+        VARINHA GALLEON i ~> 0;
+        VIRATEMPO (i < 3) {
+            CAST digitalWrite(LED_EMPATE, ALTO);
+            CAST delay(150);
+            CAST digitalWrite(LED_EMPATE, BAIXO);
+            CAST delay(150);
+            i ~> i + 1;
+        }
+    }
+
+    INCANTATIO iniciarRodada() {
+        CAST apagarLeds();
+        escolhaJ1 ~> NENHUMA;
+        escolhaJ2 ~> NENHUMA;
+        tickJ1 ~> 0;
+        tickJ2 ~> 0;
+        tickAtual ~> 0;
+        CAST sinalVisual();
+        rodadaAtiva ~> ALWAYS;
+        LUMOS("DUELO VALENDO!");
+    }
+
+    INCANTATIO lerBotoesJ1() {
+        SORTILEGIO (escolhaJ1 == NENHUMA) {
+            SORTILEGIO (CAST digitalRead(BTN_J1_EXPELLIARMUS) == BAIXO) {
+                escolhaJ1 ~> F_EXPELLIARMUS;
+                tickJ1 ~> tickAtual;
+            } SENAO {
+                SORTILEGIO (CAST digitalRead(BTN_J1_PROTEGO) == BAIXO) {
+                    escolhaJ1 ~> F_PROTEGO;
+                    tickJ1 ~> tickAtual;
+                } SENAO {
+                    SORTILEGIO (CAST digitalRead(BTN_J1_BOMBARDA) == BAIXO) {
+                        escolhaJ1 ~> F_BOMBARDA;
+                        tickJ1 ~> tickAtual;
+                    }
+                }
+            }
+        }
+    }
+
+    INCANTATIO lerBotoesJ2() {
+        SORTILEGIO (escolhaJ2 == NENHUMA) {
+            SORTILEGIO (CAST digitalRead(BTN_J2_EXPELLIARMUS) == BAIXO) {
+                escolhaJ2 ~> F_EXPELLIARMUS;
+                tickJ2 ~> tickAtual;
+            } SENAO {
+                SORTILEGIO (CAST digitalRead(BTN_J2_PROTEGO) == BAIXO) {
+                    escolhaJ2 ~> F_PROTEGO;
+                    tickJ2 ~> tickAtual;
+                } SENAO {
+                    SORTILEGIO (CAST digitalRead(BTN_J2_BOMBARDA) == BAIXO) {
+                        escolhaJ2 ~> F_BOMBARDA;
+                        tickJ2 ~> tickAtual;
+                    }
+                }
+            }
+        }
+    }
+
+    -- ALWAYS se o feitico 'a' vence o feitico 'b'
+    INCANTATIO venceMagia(a, b) {
+        EXPELLIARMUS (a == F_EXPELLIARMUS && b == F_BOMBARDA)
+                  || (a == F_BOMBARDA && b == F_PROTEGO)
+                  || (a == F_PROTEGO && b == F_EXPELLIARMUS);
+    }
+
+    INCANTATIO mostrarFeitico(id) {
+        SORTILEGIO (id == F_EXPELLIARMUS) {
+            LUMOS("Expelliarmus");
+        } SENAO {
+            SORTILEGIO (id == F_PROTEGO) {
+                LUMOS("Protego");
+            } SENAO {
+                SORTILEGIO (id == F_BOMBARDA) {
+                    LUMOS("Bombarda");
+                } SENAO {
+                    LUMOS("Nenhum");
+                }
+            }
+        }
+    }
+
+    INCANTATIO exibirSelecao() {
+        LUMOS("J1:");
+        CAST mostrarFeitico(escolhaJ1);
+        LUMOS(tickJ1 * TICK_MS);
+        LUMOS("J2:");
+        CAST mostrarFeitico(escolhaJ2);
+        LUMOS(tickJ2 * TICK_MS);
+    }
+
+    INCANTATIO validarVantagemMagica() {
+        SORTILEGIO (escolhaJ1 == escolhaJ2) {
+            LUMOS("EMPATE (Priori Incantatem)!");
+            CAST digitalWrite(LED_EMPATE, ALTO);
+        } SENAO {
+            SORTILEGIO (CAST venceMagia(escolhaJ1, escolhaJ2)) {
+                LUMOS("J1 venceu por afinidade magica!");
+                CAST digitalWrite(LED_DANO_J2, ALTO);
+            } SENAO {
+                LUMOS("J2 venceu por afinidade magica!");
+                CAST digitalWrite(LED_DANO_J1, ALTO);
+            }
+        }
+    }
+
+    INCANTATIO resolverDuelo() {
+        SORTILEGIO (escolhaJ1 == NENHUMA) {
+            LUMOS("J1 demorou demais! J2 venceu por velocidade!");
+            CAST digitalWrite(LED_DANO_J1, ALTO);
+        } SENAO {
+            SORTILEGIO (escolhaJ2 == NENHUMA) {
+                LUMOS("J2 demorou demais! J1 venceu por velocidade!");
+                CAST digitalWrite(LED_DANO_J2, ALTO);
+            } SENAO {
+                VARINHA GALLEON diff ~> tickJ1 - tickJ2;
+                SORTILEGIO (diff < 0) {
+                    diff ~> 0 - diff;
+                }
+                SORTILEGIO (diff > JANELA_TICKS) {
+                    SORTILEGIO (tickJ1 < tickJ2) {
+                        LUMOS("J1 foi muito mais rapido!");
+                        CAST digitalWrite(LED_DANO_J2, ALTO);
+                    } SENAO {
+                        LUMOS("J2 foi muito mais rapido!");
+                        CAST digitalWrite(LED_DANO_J1, ALTO);
+                    }
+                } SENAO {
+                    CAST validarVantagemMagica();
+                }
+            }
+        }
+    }
+
+    INCANTATIO verificarFimRodada() {
+        VARINHA VERITAS alguemEscolheu ~> (escolhaJ1 != NENHUMA) || (escolhaJ2 != NENHUMA);
+        VARINHA VERITAS ambosEscolheram ~> (escolhaJ1 != NENHUMA) && (escolhaJ2 != NENHUMA);
+        VARINHA VERITAS tempoEsgotado ~> alguemEscolheu && (tickAtual > LIMITE_TICKS);
+
+        SORTILEGIO (ambosEscolheram || tempoEsgotado) {
+            CAST exibirSelecao();
+            CAST resolverDuelo();
+            CAST delay(3000);
+            CAST apagarLeds();
+            rodadaAtiva ~> NEVER;
+            LUMOS("Pressione o botao 11 para a proxima rodada!");
+        }
+    }
+
+    -- ============================================================
+    -- PROGRAMA PRINCIPAL
+    -- Comandos soltos viram setup(); o VIRATEMPO (ALWAYS) vira loop().
+    -- ============================================================
+    CAST pinMode(BTN_INICIAR, ENTRADA_PULLUP);
+
+    CAST pinMode(BTN_J1_EXPELLIARMUS, ENTRADA_PULLUP);
+    CAST pinMode(BTN_J1_PROTEGO, ENTRADA_PULLUP);
+    CAST pinMode(BTN_J1_BOMBARDA, ENTRADA_PULLUP);
+
+    CAST pinMode(BTN_J2_EXPELLIARMUS, ENTRADA_PULLUP);
+    CAST pinMode(BTN_J2_PROTEGO, ENTRADA_PULLUP);
+    CAST pinMode(BTN_J2_BOMBARDA, ENTRADA_PULLUP);
+
+    CAST pinMode(LED_DANO_J1, SAIDA);
+    CAST pinMode(LED_DANO_J2, SAIDA);
+    CAST pinMode(LED_EMPATE, SAIDA);
+
+    LUMOS("--- DUELO MAGICO INICIADO ---");
+    LUMOS("Pressione o botao no pino 11 para iniciar!");
+
+    VIRATEMPO (ALWAYS) {
+        SORTILEGIO (!rodadaAtiva) {
+            SORTILEGIO (CAST digitalRead(BTN_INICIAR) == BAIXO) {
+                CAST iniciarRodada();
+            }
+        } SENAO {
+            CAST lerBotoesJ1();
+            CAST lerBotoesJ2();
+            CAST verificarFimRodada();
+            tickAtual ~> tickAtual + 1;
+            CAST delay(TICK_MS);
+        }
+    }
+}
