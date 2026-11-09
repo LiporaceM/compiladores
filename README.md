@@ -96,6 +96,20 @@ Sketch uses 3726 bytes (11%) of program storage space. Maximum is 32256 bytes.
 Global variables use 199 bytes (9%) of dynamic memory, leaving 1849 bytes for local variables. Maximum is 2048 bytes.
 ```
 
+### 2.3 Jogo web e terminal (sem placa)
+
+```powershell
+python web/gerar_web.py        # gera web/duelo_arcano.html a partir do duelo_arcano.potter
+start web\duelo_arcano.html    # abre no navegador
+python jogar_duelo.py          # versão de terminal: teclado no lugar dos botões
+```
+
+A página não reimplementa as regras: ela executa o TAC do `duelo_arcano.potter` numa VM em
+JavaScript ([web/tac_vm.js](web/tac_vm.js)), e a tela faz o papel da placa (cliques viram
+`digitalRead`, os LEDs viram animações, o `LUMOS` vai para o Monitor Serial do painel **Placa**).
+Tem torneio contra o computador e duelo local para 2 jogadores. Para usar a protoboard, veja
+[docs/guia_arduino.md](docs/guia_arduino.md).
+
 ## 3. Exemplo
 
 [exemplos/pisca_led.potter](exemplos/pisca_led.potter):
@@ -143,6 +157,8 @@ potter_api.py            funções puras usadas pela IDE (tokens, AST, tabela, .
 potter_ide.py            Potter IDE (Tkinter)
 exemplo_potter.py        demonstração do front-end no terminal
 duelo_arcano.potter      o jogo (implementação prática)
+jogar_duelo.py           o duelo no terminal (TAC interpretado, teclado no lugar dos botões)
+web/                     jogo web: VM de TAC em JS, modelo da página e gerar_web.py (gera duelo_arcano.html)
 DueloArcano/             sketch gerado (não editar à mão; é regenerado pelo compilador)
 exemplos/                programas de exemplo; exemplos/erros/ = um programa por tipo de erro
 dados/                   lista de macros do Arduino UNO (nomes que o back-end renomeia)
@@ -161,4 +177,5 @@ test_*.py                testes automatizados (unittest)
 | [docs/backend.md](docs/backend.md) | tradução PotterLang → C++, inferência de tipos, `setup()`/`loop()`, limitações |
 | [docs/tac.md](docs/tac.md) | código intermediário de três endereços: instruções, esquemas de tradução, validação |
 | [docs/hardware.md](docs/hardware.md) | pinagem, componentes, esquema e checklist de teste na placa |
+| [docs/guia_arduino.md](docs/guia_arduino.md) | guia prático: montar a protoboard, testar no Tinkercad, gravar, jogar e resolver problemas |
 | [docs/testes.md](docs/testes.md) | o que cada suíte de testes cobre e como rodar |
